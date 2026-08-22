@@ -2,8 +2,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
-from .routers import health
-
+from .routers import health, medical_data
 # Load environment variables (requires python-dotenv if .env exists)
 if os.path.exists('.env'):
     from dotenv import load_dotenv
@@ -33,7 +32,7 @@ async def on_startup():
 
 # Include versioned API router
 app.include_router(health.router, prefix="/api/v1")
-
+app.include_router(medical_data.router)
 @app.get("/", tags=["Root"])
 async def root():
     return {

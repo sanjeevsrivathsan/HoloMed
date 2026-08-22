@@ -1,9 +1,10 @@
+from __future__ import annotations
 from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime
 
 class Report(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     owner_id: int = Field(foreign_key="user.id")
     original_filename: str
     mime_type: str
