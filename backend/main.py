@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
-from .routers import health, medical_data
+from .routers import health, medical_data, dicomweb
 # Load environment variables (requires python-dotenv if .env exists)
 if os.path.exists('.env'):
     from dotenv import load_dotenv
@@ -33,6 +33,11 @@ async def on_startup():
 # Include versioned API router
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(medical_data.router)
+app.include_router(dicomweb.router)
+
+# Serve OHIF static build at /ohif
+from fastapi.staticfiles import StaticFiles
+app.mount("/ohif", StaticFiles(directory="frontend/ohif", html=True), name="ohif")
 @app.get("/", tags=["Root"])
 async def root():
     return {

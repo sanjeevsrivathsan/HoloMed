@@ -53,6 +53,9 @@ def list_patients(user: User = Depends(get_current_user), session: Session = Dep
 @router.post("/dicom/upload")
 async def upload_dicom(file: UploadFile = File(...), user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     content = await file.read()
+    # Enforce 50 MiB upload limit
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large: uploaded file exceeds 50 MiB limit")
     meta = validate_and_extract(content)
     storage_key = store_dicom(content, file.filename)
 
