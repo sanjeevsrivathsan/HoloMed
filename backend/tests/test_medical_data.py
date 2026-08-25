@@ -17,13 +17,13 @@ def get_session_override():
     with Session(engine) as session:
         yield session
 
-app.dependency_overrides[get_session] = get_session_override
-
 @pytest.fixture(name="client")
 def client_fixture():
     SQLModel.metadata.create_all(engine)
+    app.dependency_overrides[get_session] = get_session_override
     with TestClient(app) as client:
         yield client
+    app.dependency_overrides.clear()
     SQLModel.metadata.drop_all(engine)
 
 def create_dummy_dicom(size_bytes: int = 100) -> bytes:

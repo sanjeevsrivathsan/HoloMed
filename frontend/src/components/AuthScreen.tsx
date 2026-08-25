@@ -1,21 +1,35 @@
 import { useState } from 'react';
-import { Activity, Mail, Lock, User, ShieldCheck } from 'lucide-react';
+import { Activity, Mail, Lock, ShieldCheck, AlertCircle } from 'lucide-react';
 import { Button } from './Button';
 import { useAuth } from '@/context/AuthContext';
+import { ApiError } from '@/lib/api';
 
 export function AuthScreen() {
   const { signIn, signInWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setLoading(true);
-    setTimeout(() => {
-      signIn(email, password);
+    try {
+      await signIn(email, password);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 401) {
+          setError('Invalid email or password.');
+        } else {
+          setError(`Server error (${err.status}): ${err.detail}`);
+        }
+      } else {
+        setError('Could not reach the server. Is the backend running?');
+      }
+    } finally {
       setLoading(false);
-    }, 600);
+    }
   };
 
   return (
@@ -33,6 +47,13 @@ export function AuthScreen() {
           <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Welcome back</h2>
           <p className="mb-5 text-sm text-neutral-500 dark:text-neutral-400">Sign in to access your clinical workspace</p>
 
+          {error && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950/30">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+              <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Email</label>
@@ -45,6 +66,7 @@ export function AuthScreen() {
                   placeholder="you@example.com"
                   className="input pl-9"
                   required
+                  autoComplete="email"
                 />
               </div>
             </div>
@@ -59,6 +81,7 @@ export function AuthScreen() {
                   placeholder="••••••••"
                   className="input pl-9"
                   required
+                  autoComplete="current-password"
                 />
               </div>
             </div>
@@ -86,7 +109,7 @@ export function AuthScreen() {
 
         <div className="mt-4 flex items-center justify-center gap-2 text-xs text-neutral-400">
           <ShieldCheck className="h-3.5 w-3.5" />
-          <span>Demo mode — no real authentication. Any email/password works.</span>
+          <span>Sign in with your registered HoloMed account.</span>
         </div>
       </div>
     </div>

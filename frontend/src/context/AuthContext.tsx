@@ -1,12 +1,36 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+/**
+ * AuthContext — real backend authentication.
+ *
+ * Mechanism:
+ *   - Login  → POST /api/v1/auth/login (form body: username + password)
+ *              Backend sets HttpOnly cookie `session=<JWT>`.
+ *   - Restore → GET /api/v1/auth/me on mount — detects existing cookie.
+ *   - Logout  → POST /api/v1/auth/logout — clears cookie.
+ *
+ * The HttpOnly cookie is sent automatically by the browser on every request
+ * (via `credentials: 'include'` in api.ts). No token is stored in JS memory.
+ *
+ * Public interface is intentionally unchanged so all existing components
+ * (AuthScreen, Topbar, Sidebar, etc.) require zero modifications.
+ */
+
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
+} from 'react';
 import type { UserProfile, Role } from '@/lib/types';
-import { demoUser, demoPatient } from '@/lib/demo-data';
+import { api, ApiError, type MeResponse } from '@/lib/api';
 
 interface AuthContextValue {
   user: UserProfile | null;
   isAuthenticated: boolean;
   role: Role;
-  signIn: (email: string, _password: string) => void;
+  loading: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => void;
   signOut: () => void;
   switchRole: (role: Role) => void;
@@ -14,23 +38,74 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+/** Map the backend /me response to the frontend UserProfile shape. */
+function toProfile(me: MeResponse, role: Role = 'patient'): UserProfile {
+  return {
+    id: String(me.id),
+    email: me.email,
+    // Derive a display name from the email (before the @)
+    displayName: me.email.split('@')[0],
+    role,
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [role, setRole] = useState<Role>('patient');
+  /** True while the initial session-restore call is in flight */
+  const [loading, setLoading] = useState(true);
 
-  const signIn = (email: string, _password: string) => {
-    setUser({ ...demoUser, email: email || demoUser.email });
-  };
+  // ── Restore session on mount ──────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await api.get<MeResponse>('/api/v1/auth/me');
+        if (!cancelled) setUser(toProfile(me, role));
+      } catch (err) {
+        // 401 = no active session — normal on first visit
+        if (!(err instanceof ApiError) || err.status !== 401) {
+          console.warn('[AuthContext] Session restore failed:', err);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const signInWithGoogle = () => {
-    setUser({ ...demoUser, email: 'google-user@holomed.ai' });
-  };
+  // ── Sign in ───────────────────────────────────────────────────────────────
+  const signIn = useCallback(async (email: string, password: string) => {
+    // Backend expects OAuth2PasswordRequestForm — application/x-www-form-urlencoded
+    await api.postForm('/api/v1/auth/login', {
+      username: email,  // OAuth2 spec uses `username`, backend maps it to email
+      password,
+    });
+    // Cookie is now set. Fetch the user profile.
+    const me = await api.get<MeResponse>('/api/v1/auth/me');
+    setUser(toProfile(me, role));
+  }, [role]);
 
-  const signOut = () => {
-    setUser(null);
-  };
+  // ── Google sign-in (not wired to backend yet — placeholder) ──────────────
+  const signInWithGoogle = useCallback(() => {
+    console.warn('[AuthContext] Google sign-in is not yet implemented in the backend.');
+  }, []);
 
-  const switchRole = (r: Role) => setRole(r);
+  // ── Sign out ──────────────────────────────────────────────────────────────
+  const signOut = useCallback(async () => {
+    try {
+      await api.postEmpty('/api/v1/auth/logout');
+    } catch (err) {
+      // Ignore — cookie may already be expired
+      console.warn('[AuthContext] Logout error (non-fatal):', err);
+    } finally {
+      setUser(null);
+    }
+  }, []);
+
+  // ── Role switcher (frontend-only; backend doesn't implement role switching) ─
+  const switchRole = useCallback((r: Role) => setRole(r), []);
 
   return (
     <AuthContext.Provider
@@ -38,6 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isAuthenticated: !!user,
         role,
+        loading,
         signIn,
         signInWithGoogle,
         signOut,
@@ -55,4 +131,5 @@ export function useAuth() {
   return ctx;
 }
 
-export { demoPatient };
+// Re-export for backward compat (AuthContext was previously exporting demoPatient)
+export { };

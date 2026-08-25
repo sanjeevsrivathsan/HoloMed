@@ -35,13 +35,13 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { key: 'imaging', label: 'Imaging Workspace', icon: ScanLine },
   { key: 'reports', label: 'Reports', icon: FileText },
+  { key: 'clinical', label: 'Clinical View', icon: FileText },
+  { key: 'dashboard', label: 'Overview', icon: LayoutDashboard },
   { key: 'search', label: 'Health Search', icon: Search },
   { key: 'timeline', label: 'Health Timeline', icon: Activity },
-  { key: 'imaging', label: 'Imaging', icon: ScanLine },
   { key: 'templates', label: 'Templates', icon: LayoutTemplate },
-  { key: 'clinical', label: 'Clinical View', icon: FileText },
   { key: 'privacy', label: 'Privacy Center', icon: ShieldCheck },
   { key: 'storage', label: 'Storage & Delivery', icon: HardDrive },
   { key: 'settings', label: 'Settings', icon: Settings },

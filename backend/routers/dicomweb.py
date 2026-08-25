@@ -34,7 +34,7 @@ def qido_studies(user: User = Depends(get_current_user), session: Session = Depe
 
 
 @router.get("/studies/{study_uid}", response_model=StudyMeta)
-def qido_study(study_uid: str, user: User = Depends(get_current_user), session: Session = Depends(lambda: Session())):
+def qido_study(study_uid: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     stmt = select(Study).where(Study.study_instance_uid == study_uid, Study.owner_id == user.id)
     study = session.exec(stmt).first()
     if not study:
@@ -118,12 +118,14 @@ def wado_instance(study_uid: str, series_uid: str, sop_uid: str, user: User = De
     if not file_bytes:
         raise HTTPException(status_code=404, detail="File not found in storage")
     # Build multipart/related response expected by OHIF (boundary must be unique per response)
-    boundary = "OHIFBoundary"
+    import uuid
+    boundary = uuid.uuid4().hex
+    # Construct multipart body as bytes to avoid encoding issues
     multipart_body = (
-        f"--{boundary}\r\n"
-        f"Content-Type: application/dicom\r\n\r\n"
-        f"{file_bytes.decode('latin1')}\r\n"
-        f"--{boundary}--\r\n"
+        f"--{boundary}\r\n".encode("utf-8")
+        + b"Content-Type: application/dicom\r\n\r\n"
+        + file_bytes
+        + f"\r\n--{boundary}--\r\n".encode("utf-8")
     )
     log_action(session, user.id, "dicomweb_wado_instance", {"study_uid": study_uid, "series_uid": series_uid, "sop_uid": sop_uid})
     return Response(content=multipart_body, media_type=f"multipart/related; type=application/dicom; boundary={boundary}")

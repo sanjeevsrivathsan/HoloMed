@@ -183,10 +183,12 @@ export function Reports({ reports, selectedReportId, onSelectReport, onUpload, u
               />
               <div className="flex-1 overflow-y-auto p-4">
                 {activeTab === 'original' && (
-                  <div className="flex h-full min-h-[300px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-neutral-200 bg-neutral-50 p-8 dark:border-neutral-700 dark:bg-neutral-800/50">
-                    <FileText className="mb-3 h-12 w-12 text-neutral-300 dark:text-neutral-600" />
-                    <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400">PDF Preview Placeholder</p>
-                    <p className="mt-1 text-xs text-neutral-400">Document preview requires a PDF rendering backend. The original file is stored immutably.</p>
+                  <div className="flex h-full min-h-[500px] flex-col rounded-lg border border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/50">
+                    <iframe 
+                      src={`/api/v1/reports/${selectedReport.id}/download`} 
+                      className="h-full w-full rounded-lg"
+                      title={selectedReport.title}
+                    />
                   </div>
                 )}
                 {activeTab === 'markdown' && (

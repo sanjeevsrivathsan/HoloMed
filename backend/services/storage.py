@@ -6,7 +6,9 @@ STORAGE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "
 os.makedirs(STORAGE_DIR, exist_ok=True)
 
 def store_file(file_bytes: bytes, filename: str) -> str:
-    storage_key = f"{uuid.uuid4()}_{filename}"
+    # Prevent directory traversal by stripping any path components
+    safe_name = os.path.basename(filename)
+    storage_key = f"{uuid.uuid4()}_{safe_name}"
     file_path = os.path.join(STORAGE_DIR, storage_key)
     with open(file_path, "wb") as f:
         f.write(file_bytes)

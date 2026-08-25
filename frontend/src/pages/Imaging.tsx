@@ -1,20 +1,31 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   ScanLine, Layers, ZoomIn, Hand, Sliders, Ruler, PenTool, Box, FileText,
-  Sparkles, ShieldCheck, AlertCircle, ExternalLink,
+  Sparkles, ShieldCheck, ExternalLink, Upload, Loader2,
 } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SafetyNotice } from '@/components/SafetyNotice';
-import { DemoDataBadge } from '@/components/DemoDataBadge';
 import { EmptyState } from '@/components/States';
+import { api, ApiError, type DicomUploadResponse } from '@/lib/api';
+import { useToast } from '@/context/ToastContext';
 import type { ImagingStudy } from '@/lib/types';
+
+/**
+ * OHIF is served by the FastAPI backend at /ohif/.
+ * In development, Vite proxy forwards /ohif/* to 127.0.0.1:8000, so /ohif/ works.
+ * In production, set VITE_OHIF_URL to the absolute URL if needed.
+ */
+const OHIF_BASE = (import.meta.env.VITE_OHIF_URL as string | undefined) ?? '/ohif/';
 
 interface ImagingProps {
   studies: ImagingStudy[];
+  studiesLoading: boolean;
   selectedStudyId: string | null;
   onSelectStudy: (id: string) => void;
+  /** Called after a successful DICOM upload so the study list refreshes */
+  onStudyUploaded: () => void;
 }
 
 const toolbarTools = [
@@ -28,21 +39,130 @@ const toolbarTools = [
   { key: 'annotate', label: 'Annotation', icon: PenTool },
 ];
 
-export function Imaging({ studies, selectedStudyId, onSelectStudy }: ImagingProps) {
+export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStudy, onStudyUploaded }: ImagingProps) {
+  const { addToast } = useToast();
   const [activeTool, setActiveTool] = useState('2d');
+  const [viewerOpen, setViewerOpen] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedStudy = studies.find((s) => s.id === selectedStudyId) || null;
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
+  // ── OHIF viewer URL ───────────────────────────────────────────────────────
+  // When a study is selected, OHIF is opened with StudyInstanceUIDs query param.
+  // The study ID is the StudyInstanceUID from the QIDO response.
+  const ohifStudyUrl = selectedStudy
+    ? `${OHIF_BASE}?StudyInstanceUIDs=${encodeURIComponent(selectedStudy.id)}`
+    : OHIF_BASE;
+
+  // ── DICOM upload ──────────────────────────────────────────────────────────
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset file input so the same file can be re-uploaded if needed
+    e.target.value = '';
+
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await api.postMultipart<DicomUploadResponse>(
+        '/api/v1/medical-data/dicom/upload',
+        form,
+      );
+      addToast({
+        title: 'DICOM uploaded',
+        description: `Instance #${res.instance_id} stored successfully.`,
+        variant: 'success',
+      });
+      // Refresh the study list so the new study appears
+      onStudyUploaded();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        addToast({
+          title: 'Upload failed',
+          description: err.detail,
+          variant: 'error',
+        });
+      } else {
+        addToast({
+          title: 'Upload failed',
+          description: 'Could not reach the server.',
+          variant: 'error',
+        });
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:h-[calc(100vh-5rem)]">
+    <div className="space-y-3 lg:h-[calc(100vh-5rem)] lg:flex lg:flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-teal-600 dark:text-teal-400">Primary workspace</p>
+          <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">OHIF Diagnostic Imaging</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatusBadge variant={selectedStudy?.deidentified ? 'success' : 'warning'}>
+            {selectedStudy?.deidentified ? 'De-identified study' : 'Check de-identification'}
+          </StatusBadge>
+          <Button variant="secondary" size="sm" onClick={() => setViewerOpen((open) => !open)}>
+            {viewerOpen ? 'Hide viewer' : 'Show viewer'}
+          </Button>
+          <Button size="sm" onClick={() => window.open(ohifStudyUrl, '_blank', 'noopener,noreferrer')}>
+            <ExternalLink className="h-3.5 w-3.5" /> Open OHIF
+          </Button>
+        </div>
+      </div>
+
+    <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-12 lg:min-h-0">
       {/* Left: Study List */}
       <div className="lg:col-span-3 lg:overflow-y-auto">
         <Card className="lg:h-full flex flex-col">
-          <CardHeader title="Imaging Studies" icon={<ScanLine className="h-4.5 w-4.5" />} action={<DemoDataBadge />} />
+          <CardHeader
+            title="Imaging Studies"
+            icon={<ScanLine className="h-4.5 w-4.5" />}
+            action={
+              <div className="flex items-center gap-1">
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".dcm,application/dicom"
+                  className="hidden"
+                  onChange={handleFileSelected}
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  title="Upload DICOM file"
+                >
+                  {uploading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            }
+          />
           <div className="flex-1 divide-y divide-neutral-100 dark:divide-neutral-800 lg:overflow-y-auto">
-            {studies.length === 0 ? (
-              <EmptyState title="No studies" description="No imaging studies available." icon={<ScanLine className="h-6 w-6" />} />
+            {studiesLoading ? (
+              <div className="flex items-center justify-center p-8">
+                <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
+              </div>
+            ) : studies.length === 0 ? (
+              <div className="p-4">
+                <EmptyState
+                  title="No studies"
+                  description="Upload a DICOM file using the ↑ button above."
+                  icon={<ScanLine className="h-6 w-6" />}
+                />
+              </div>
             ) : (
               studies.map((study) => (
                 <button
@@ -53,13 +173,10 @@ export function Imaging({ studies, selectedStudyId, onSelectStudy }: ImagingProp
                   }`}
                 >
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{study.description}</p>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{study.modality} · {study.bodyPart} · {formatDate(study.studyDate)}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{study.modality} · {formatDate(study.studyDate)}</p>
                   <div className="flex items-center gap-2">
-                    <StatusBadge variant={study.deidentified ? 'success' : 'warning'}>
-                      {study.deidentified ? 'De-identified' : 'Not de-identified'}
-                    </StatusBadge>
-                    <StatusBadge variant={study.status === 'available' ? 'success' : 'info'} pulse={study.status === 'pending'}>
-                      {study.status === 'available' ? 'Available' : study.status === 'pending' ? 'Pending' : 'Integration required'}
+                    <StatusBadge variant="success">
+                      Available
                     </StatusBadge>
                   </div>
                 </button>
@@ -71,8 +188,8 @@ export function Imaging({ studies, selectedStudyId, onSelectStudy }: ImagingProp
               <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Study Metadata</p>
               {selectedStudy ? (
                 <div className="space-y-1 text-xs text-neutral-600 dark:text-neutral-400">
-                  <p>Accession: {selectedStudy.accessionNumber}</p>
-                  <p>Series: {selectedStudy.seriesCount}</p>
+                  <p className="break-all font-mono text-[10px]">UID: {selectedStudy.id}</p>
+                  <p>Modality: {selectedStudy.modality}</p>
                   <p>Date: {formatDate(selectedStudy.studyDate)}</p>
                 </div>
               ) : (
@@ -84,7 +201,7 @@ export function Imaging({ studies, selectedStudyId, onSelectStudy }: ImagingProp
       </div>
 
       {/* Center: Imaging Viewport */}
-      <div className="lg:col-span-6">
+      <div className="lg:col-span-6 min-h-[560px]">
         <Card className="lg:h-full flex flex-col">
           {!selectedStudy ? (
             <div className="flex flex-1 items-center justify-center p-8">
@@ -114,27 +231,23 @@ export function Imaging({ studies, selectedStudyId, onSelectStudy }: ImagingProp
                 })}
               </div>
 
-              {/* Viewport */}
-              <div className="flex flex-1 items-center justify-center bg-neutral-950 p-4" style={{ minHeight: 400 }}>
-                <div className="flex flex-col items-center justify-center text-center">
-                  <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-neutral-900">
+              <div className="relative flex flex-1 bg-neutral-950" style={{ minHeight: 400 }}>
+                {viewerOpen ? (
+                  <iframe
+                    title="OHIF DICOM Viewer"
+                    src={ohifStudyUrl}
+                    className="h-full min-h-[440px] w-full border-0"
+                    allow="fullscreen"
+                  />
+                ) : (
+                  <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
                     <ScanLine className="h-10 w-10 text-neutral-600" />
+                    <p className="mt-3 text-sm font-semibold text-neutral-300">Viewer hidden</p>
+                    <p className="mt-1 text-xs text-neutral-500">Use Show viewer to return to OHIF, or open it in a dedicated tab.</p>
                   </div>
-                  <p className="text-sm font-semibold text-neutral-300">OHIF Viewer Integration Required</p>
-                  <p className="mt-1 max-w-sm text-xs text-neutral-500">
-                    This is a demo workspace. The OHIF Viewer is not embedded in demo mode.
-                    Connect a DICOM backend (e.g., Orthanc or dcm4che) to enable full imaging visualization.
-                  </p>
-                  <div className="mt-4 flex items-center gap-2">
-                    <Button variant="secondary" size="sm" disabled>
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      Launch OHIF Viewer
-                    </Button>
-                  </div>
-                  <div className="mt-3 flex items-center gap-2 text-xs text-amber-500">
-                    <AlertCircle className="h-3.5 w-3.5" />
-                    AI image analysis is not available. Do not infer AI analyzed the image.
-                  </div>
+                )}
+                <div className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-black/70 px-2.5 py-1.5 text-[11px] font-medium text-white">
+                  OHIF Viewer · {activeTool.toUpperCase()} mode
                 </div>
               </div>
 
@@ -143,20 +256,16 @@ export function Imaging({ studies, selectedStudyId, onSelectStudy }: ImagingProp
                 <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
                   <span>{selectedStudy.modality}</span>
                   <span>·</span>
-                  <span>{selectedStudy.bodyPart}</span>
-                  <span>·</span>
-                  <span>{selectedStudy.seriesCount} series</span>
+                  <span className="max-w-[200px] truncate font-mono text-[10px]">{selectedStudy.id}</span>
                 </div>
-                <StatusBadge variant={selectedStudy.deidentified ? 'success' : 'warning'}>
-                  {selectedStudy.deidentified ? 'De-identified' : 'Not de-identified'}
-                </StatusBadge>
+                <StatusBadge variant="success">Live</StatusBadge>
               </div>
             </>
           )}
         </Card>
       </div>
 
-      {/* Right: Report & AI Explanation */}
+      {/* Right: Radiology Report / AI */}
       <div className="lg:col-span-3 lg:overflow-y-auto">
         <Card className="lg:h-full flex flex-col">
           <CardHeader title="Radiology Report" icon={<FileText className="h-4.5 w-4.5" />} />
@@ -164,46 +273,43 @@ export function Imaging({ studies, selectedStudyId, onSelectStudy }: ImagingProp
             {!selectedStudy ? (
               <EmptyState title="No study selected" description="Select a study to view its radiology report." icon={<FileText className="h-6 w-6" />} />
             ) : !selectedStudy.reportText ? (
-              <EmptyState title="No report available" description="This study has no associated radiology report." icon={<FileText className="h-6 w-6" />} />
+              <div className="space-y-3">
+                <EmptyState title="No report available" description="This DICOM study has no associated radiology report text." icon={<FileText className="h-6 w-6" />} />
+                <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-700/30 dark:bg-teal-950/10">
+                  <div className="mb-1.5 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+                    <p className="text-xs font-semibold text-teal-600 dark:text-teal-400">AI Analysis</p>
+                  </div>
+                  <p className="text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">
+                    AI report analysis will be available once an Ollama model is configured on the backend.
+                  </p>
+                </div>
+              </div>
             ) : (
               <div className="space-y-4">
                 <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
                   <p className="mb-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Report Text</p>
                   <p className="whitespace-pre-wrap text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">{selectedStudy.reportText}</p>
                 </div>
-
                 <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-700/30 dark:bg-teal-950/10">
                   <div className="mb-1.5 flex items-center gap-1.5">
                     <Sparkles className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
-                    <p className="text-xs font-semibold text-teal-600 dark:text-teal-400">AI Explanation of Report</p>
+                    <p className="text-xs font-semibold text-teal-600 dark:text-teal-400">AI Analysis (not yet connected)</p>
                   </div>
-                  <p className="text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">
-                    This report describes a CT scan of the abdomen and pelvis. The key finding is a small, simple cyst in the right kidney classified as Bosniak I, which is benign and typically requires no treatment. All other organs appeared normal with no signs of acute disease.
-                  </p>
-                  <p className="mt-2 text-xs text-neutral-400">
-                    Note: This AI explanation summarizes the written radiology report only. It does not analyze the image itself.
+                  <p className="text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">
+                    Connect the Ollama backend to enable AI-powered report explanations.
                   </p>
                 </div>
-
-                <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-                  <p className="mb-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Questions for Doctor</p>
-                  <ol className="space-y-1 text-xs text-neutral-700 dark:text-neutral-300">
-                    <li>1. Does the renal cyst need follow-up imaging?</li>
-                    <li>2. At what interval should I have a repeat scan?</li>
-                    <li>3. Are there any symptoms I should watch for?</li>
-                  </ol>
-                </div>
-
                 <SafetyNotice variant="compact" />
-
                 <div className="flex items-center gap-2 text-xs text-neutral-400">
                   <ShieldCheck className="h-3.5 w-3.5" />
-                  <span>Report-to-image links show anatomical text only. No coordinate mapping in demo mode.</span>
+                  <span>Report text is from the stored DICOM metadata only.</span>
                 </div>
               </div>
             )}
           </div>
         </Card>
+      </div>
       </div>
     </div>
   );
