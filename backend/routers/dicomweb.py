@@ -97,6 +97,63 @@ def qido_instances(study_uid: str, series_uid: str, user: User = Depends(get_cur
     return [InstanceMeta(SOPInstanceUID=i.sop_instance_uid) for i in instances]
 
 
+@router.get("/studies/{study_uid}/metadata")
+def wado_study_metadata(study_uid: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    stmt = (
+        select(Instance)
+        .join(Series)
+        .join(Study)
+        .where(Study.study_instance_uid == study_uid, Study.owner_id == user.id)
+    )
+    instances = session.exec(stmt).all()
+    if not instances:
+        raise HTTPException(status_code=404, detail="Study/instances not found")
+        
+    metadata_list = []
+    import io
+    import pydicom
+    for instance in instances:
+        file_bytes = retrieve_file(instance.storage_key, instance.storage_provider)
+        if file_bytes:
+            ds = pydicom.dcmread(io.BytesIO(file_bytes), stop_before_pixels=True)
+            # Suppress specific VRs that cause issues or are too large
+            metadata_list.append(ds.to_json_dict(suppress_invalid_tags=True))
+            
+    log_action(session, user.id, "dicomweb_wado_study_metadata", {"study_uid": study_uid})
+    from fastapi.responses import JSONResponse
+    return JSONResponse(content=metadata_list, media_type="application/dicom+json")
+
+
+@router.get("/studies/{study_uid}/series/{series_uid}/metadata")
+def wado_series_metadata(study_uid: str, series_uid: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    stmt = (
+        select(Instance)
+        .join(Series)
+        .join(Study)
+        .where(
+            Series.series_instance_uid == series_uid,
+            Study.study_instance_uid == study_uid,
+            Study.owner_id == user.id
+        )
+    )
+    instances = session.exec(stmt).all()
+    if not instances:
+        raise HTTPException(status_code=404, detail="Series/instances not found")
+        
+    metadata_list = []
+    import io
+    import pydicom
+    for instance in instances:
+        file_bytes = retrieve_file(instance.storage_key, instance.storage_provider)
+        if file_bytes:
+            ds = pydicom.dcmread(io.BytesIO(file_bytes), stop_before_pixels=True)
+            metadata_list.append(ds.to_json_dict(suppress_invalid_tags=True))
+            
+    log_action(session, user.id, "dicomweb_wado_series_metadata", {"study_uid": study_uid, "series_uid": series_uid})
+    from fastapi.responses import JSONResponse
+    return JSONResponse(content=metadata_list, media_type="application/dicom+json")
+
+
 @router.get("/studies/{study_uid}/series/{series_uid}/instances/{sop_uid}")
 def wado_instance(study_uid: str, series_uid: str, sop_uid: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     # Verify ownership chain

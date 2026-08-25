@@ -78,3 +78,20 @@ def test_dicomweb_study_endpoint(client: TestClient):
     assert resp.status_code == 200
     json_body = resp.json()
     assert json_body["StudyInstanceUID"] == study_instance_uid
+
+    # Verify WADO-RS study metadata
+    resp = client.get(f"/api/v1/dicomweb/studies/{study_instance_uid}/metadata")
+    assert resp.status_code == 200
+    meta_json = resp.json()
+    assert isinstance(meta_json, list)
+    assert len(meta_json) > 0
+    # DICOM JSON requires specific tags, e.g. StudyInstanceUID is 0020000D
+    # The value is inside a Value array
+    assert "0020000D" in meta_json[0]
+    
+    # Try unauthorized access to metadata by another user
+    email2 = f"test_{uuid.uuid4().hex[:8]}@example.com"
+    client.post("/api/v1/auth/register", params={"email": email2, "password": password})
+    client.post("/api/v1/auth/login", data={"username": email2, "password": password})
+    resp = client.get(f"/api/v1/dicomweb/studies/{study_instance_uid}/metadata")
+    assert resp.status_code == 404

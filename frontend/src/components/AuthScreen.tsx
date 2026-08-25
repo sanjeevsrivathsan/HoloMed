@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, Mail, Lock, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Activity, Mail, Lock, ShieldCheck, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { Button } from './Button';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api';
@@ -8,6 +8,7 @@ export function AuthScreen() {
   const { signIn, signInWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,14 +76,26 @@ export function AuthScreen() {
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="input pl-9"
+                  className="input pl-9 pr-10"
                   required
                   autoComplete="current-password"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-teal-500 rounded-sm dark:hover:text-neutral-300"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
               </div>
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
