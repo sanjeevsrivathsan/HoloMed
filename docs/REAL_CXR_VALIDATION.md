@@ -79,7 +79,9 @@ Full record: `backend/tests/artifacts/real_cxr/provenance.json`.
 
 ### De-identification
 
-- **NIH ChestX-ray14** is a public, de-identified NIH Clinical Center release.
+- **NIH ChestX-ray14** is a public, de-identified NIH Clinical Center release. Its usage terms and the
+  required attribution (download link, CVPR 2017 citation, NIH Clinical Center acknowledgment) are
+  recorded in `backend/tests/artifacts/real_cxr/ATTRIBUTION.md`.
 - **SIIM DICOM:** `PatientName`/`PatientID` are random UUIDs, `StudyDate` is the
   placeholder `19010101`, and there is no institution tag.
 

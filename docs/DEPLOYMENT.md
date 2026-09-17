@@ -1,0 +1,219 @@
+# HoloMed Deployment Guide
+
+> HoloMed is a hackathon/research demonstration. It is **not** clinical software, and the model
+> has not been clinically validated by HoloMed. No regulatory compliance is claimed.
+
+**Status (2026-09-17)**
+- **Local development:** verified end to end.
+- **Cloud vision worker:** implemented and tested against a locally running worker.
+- **Modal deployment:** not yet completed. The Modal volume and secret exist, but deployment of the
+  T4 function is pending on the Modal account's billing setup.
+- **Pending measurements:** cloud cold-start and latency numbers will be added here after the first
+  real deployment.
+
+## 1. Architecture
+
+### Local development (default)
+
+```
+Browser ──> Vite dev server (:5173, proxies /api and /ohif)
+              └─> HoloMed FastAPI (:8001)
+                    ├── VISION_PROVIDER=local  ──> in-process TorchXRayVision DenseNet-121 + Grad-CAM (GPU/CPU)
+                    └── TEXT_AI_PROVIDER=ollama ──> local Ollama (:11434), explanation text only
+```
+
+### Cloud vision (deployment)
+
+```
+Browser ──> HoloMed FastAPI
+              ├── VISION_PROVIDER=cloud ──HTTPS + bearer token──> Modal "holomed-vision" (T4 GPU)
+              │                                                    └── same DenseNet-121 + Grad-CAM code
+              └── TEXT_AI_PROVIDER=ollama (development) | omniroute (hosted; not yet deployed)
+```
+
+### Design guarantees
+- **Single gateway:** the browser only talks to the HoloMed API. It never sees provider URLs,
+  tokens or which provider is in use.
+- **No fallback:** with `VISION_PROVIDER=cloud` there is **no fallback** to local inference. A
+  cloud failure returns a controlled `503 Vision service is not available`.
+- **Same response everywhere:** the cloud worker returns the same `VisionScreenResponse` as the
+  local provider. The backend rejects any response whose weights hash, 18-target list, Grad-CAM
+  layer or score consistency does not match the validated model. Safety text is always set by the
+  backend.
+- **Text AI never sees images:** it receives only the structured model output. See
+  `docs/VISION_SERVICE.md` §15 and the explanation service.
+
+## 2. Model provenance and hash verification
+
+| | |
+|---|---|
+| Model | TorchXRayVision DenseNet-121 (torchxrayvision 1.5.4) |
+| Weights | `densenet121-res224-all` |
+| SHA-256 | `56524913dd16a906422e8d8b66a7a5c46be1d82eb7ac012d8103776f1aa68899` |
+| Obtain | `backend/models/weights/README.md` (upstream URL, size, verification command) |
+
+- **Not in Git:** the checkpoint is not committed.
+- **Hash check before loading:** local and cloud workers compute the SHA-256 **before**
+  deserializing the file (it is a full pickle) and refuse to load anything else.
+- **No downloads at runtime:** weights are never fetched while the service is running.
+- **Validation evidence:** `docs/REAL_CXR_VALIDATION.md` (real-image validation) and
+  `docs/VISION_SERVICE.md` (service design, safety language, limitations).
+
+## 3. Environment variables (names only)
+
+See `.env.example` for the full annotated list. Never commit real values; `.env` is git-ignored.
+
+### Local development
+| Group | Variables |
+|---|---|
+| Required | `JWT_SECRET` |
+| Vision | `VISION_PROVIDER=local`, `VISION_PRELOAD`, `VISION_DEVICE`, `VISION_WEIGHTS_PATH` |
+| Text AI | `TEXT_AI_PROVIDER=ollama`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
+| Optional | `HOLUMED_DB_PATH`, `CORS_ORIGINS`, `JWT_EXPIRE_MINUTES`, `VISION_MAX_UPLOAD_BYTES`, `VISION_MAX_OVERLAY_SIDE`, `VISION_RESULT_TTL_SECONDS`, `TEXT_AI_TIMEOUT_SECONDS` |
+
+### Production / cloud (server secrets)
+| Group | Variables |
+|---|---|
+| Vision | `VISION_PROVIDER=cloud`, `VISION_CLOUD_URL`, `VISION_CLOUD_TOKEN`, `VISION_CLOUD_TIMEOUT_SECONDS` |
+| Text AI (hosted) | `TEXT_AI_PROVIDER=omniroute`, `OMNIROUTE_BASE_URL`, `OMNIROUTE_API_KEY`, `OMNIROUTE_MODEL` |
+| Auth / CORS | `JWT_SECRET`, `CORS_ORIGINS`; optionally `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+
+### Modal worker
+- `VISION_WORKER_TOKEN` comes from the Modal Secret `holomed-vision-worker`.
+- The image sets `VISION_WEIGHTS_PATH`, `VISION_DEVICE=cuda` and `VISION_PRELOAD=1`.
+
+### Deploy-time options
+`HOLOMED_MODAL_GPU` (default `T4`), `HOLOMED_MODAL_MIN_CONTAINERS` (default `0`, scale to zero),
+`HOLOMED_MODAL_SCALEDOWN_SECONDS` (default `600`).
+
+### Frontend
+`frontend/.env.example`: `VITE_API_BASE_URL`, `VITE_OHIF_URL`. Never put secrets in `VITE_*`
+variables.
+
+## 4. Run locally
+
+Prerequisites:
+- Python 3.12 (python.org build)
+- Node 18+
+- NVIDIA GPU with CUDA 12.4 drivers (optional; CPU fallback works)
+- Ollama
+
+```bash
+# 1. Python environment (from the repository root)
+python -m venv .venv
+.venv/Scripts/python -m pip install -r backend/requirements.txt     # Windows path; use .venv/bin on Linux/macOS
+
+# 2. Model weights
+#    download + verify per backend/models/weights/README.md
+
+# 3. Configuration
+cp .env.example .env        # then set JWT_SECRET (and others as needed)
+
+# 4. Text AI (optional; screening works without it)
+ollama pull qwen3:8b
+
+# 5. Backend (run from the repository root; it serves /ohif from frontend/ohif)
+VISION_PRELOAD=1 .venv/Scripts/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
+
+# 6. Frontend
+cd frontend && npm install && npm run dev      # http://127.0.0.1:5173
+```
+
+### Health checks
+| Endpoint | Meaning |
+|---|---|
+| `GET /api/v1/health` | Application up |
+| `GET /api/v1/ready` | Database reachable |
+| `GET /api/v1/vision/status` | `{provider, provider_configured, model_ready, status}` with status `ready`, `loading`, `standby` or `unavailable`. Contains no URLs or credentials. |
+
+### Tests
+```bash
+.venv/Scripts/python -m pytest backend/tests                        # full backend suite
+HOLOMED_LIVE_OLLAMA=1 .venv/Scripts/python -m pytest backend/tests -k live   # opt-in live Ollama test
+cd frontend && npm run typecheck && npm run build
+```
+
+## 5. Deploy the vision worker on Modal
+
+The worker code is `backend/vision_worker/app.py`; the Modal app is `deploy/modal/holomed_vision.py`.
+
+### What is deployed
+- **App and function:** app `holomed-vision`, function `web` (ASGI), GPU `T4`.
+- **Scaling:** scale to zero by default; `max_inputs=8` concurrent requests per container, with
+  inference serialized by the model lock.
+- **Image:** Debian slim with Python 3.12, torch 2.6.0 and torchvision 0.21.0 (CUDA 12.4 wheels),
+  torchxrayvision 1.5.4, pydicom 3.0.2, pillow 12.3.0, numpy 2.4.6 and FastAPI 0.111.0.
+- **Code shipped:** only `backend/config.py`, `backend/services/vision/` and
+  `backend/vision_worker/`. No routers, tests, `.env` or weights.
+- **Weights:** the private Modal Volume `holomed-vision-weights`, mounted **read-only** at
+  `/weights`.
+- **Authentication:** every request needs `Authorization: Bearer <VISION_WORKER_TOKEN>`.
+  Documentation endpoints are disabled.
+- **Data handling:** images are processed in memory, not written to disk and not logged.
+  Worker logs contain only format, target and timing.
+
+### One-time setup
+Run from the repository root. On Git Bash for Windows, prefix commands that take `/path`
+arguments with `MSYS_NO_PATHCONV=1`.
+
+```bash
+.venv/Scripts/modal token new                      # browser login
+modal volume create holomed-vision-weights
+modal volume put holomed-vision-weights backend/models/weights/densenet121-res224-all.pt /densenet121-res224-all.pt
+# Create a random token (do not echo it), write it to a temporary dotenv file as
+# VISION_WORKER_TOKEN=<token>, then:
+modal secret create holomed-vision-worker --from-dotenv <temporary-file>
+# delete the temporary file; put the same token in the backend's VISION_CLOUD_TOKEN secret
+```
+
+### Deploy
+```bash
+modal deploy deploy/modal/holomed_vision.py
+```
+- **Billing:** GPU functions require a payment method on the Modal account.
+- **Endpoint:** the command prints the endpoint URL. Set it as `VISION_CLOUD_URL` in the backend's
+  secret environment, and set `VISION_PROVIDER=cloud` **only** in that environment.
+
+### Verify
+```bash
+curl -s https://<host>/api/v1/vision/status      # expect provider "cloud" and status "ready"
+```
+Then run the browser workflow (upload, screen, select a finding, view Grad-CAM and the
+explanation).
+
+## 6. Switching providers
+
+| Goal | Setting |
+|---|---|
+| Local GPU/CPU inference (development, reference) | `VISION_PROVIDER=local` (default) |
+| Modal GPU inference | `VISION_PROVIDER=cloud` + `VISION_CLOUD_URL` + `VISION_CLOUD_TOKEN` |
+| Local text explanations | `TEXT_AI_PROVIDER=ollama` (default) |
+| Hosted text explanations | `TEXT_AI_PROVIDER=omniroute` + `OMNIROUTE_*` |
+
+- **Frontend:** unchanged in every case.
+- **Misconfiguration:** an unknown or unconfigured provider returns `503`. Nothing falls back
+  silently to another provider.
+
+## 7. Cold start and performance
+
+| Setup | Measurement |
+|---|---|
+| Local (RTX 3070 Ti) | Model load about 0.35 s (0.9 s with warm-up). The first request after `VISION_PRELOAD=1` completed in about 0.25 s in the browser. Warm HTTP median 99.8 ms (NIH PNG) and 184.7 ms (SIIM DICOM). See `docs/VISION_SERVICE.md` §13. |
+| Local explanations (qwen3:8b) | About 5–6 s median per finding. The first call after Ollama starts can take about 60 s while the model loads. |
+| Modal (T4) | **Not measured yet.** With scale to zero, the first request after idle includes container start, weight load and warm-up; the worker preloads at container start. The observed numbers will be recorded here. |
+
+## 8. Limitations
+- **Not clinically validated:** a research/hackathon demonstration only. Scores are uncalibrated
+  model outputs, and Grad-CAM is not evidence of disease.
+- **Throughput:** one Grad-CAM at a time per process (model lock).
+- **Short-lived results:** structured results used for explanations live in process memory
+  (default 30 min). They are lost on restart and not shared across multiple backend instances.
+- **Explanation fallback:** explanations depend on a text AI service. When it is unavailable,
+  screening still works and the UI shows "AI explanation unavailable".
+- **OmniRoute:** implemented and contract-tested, but not deployed or tested live.
+- **Modal:** see the status at the top of this document.
+- **No compliance claims:** HIPAA, GDPR and DPDP compliance are not claimed. Data retention depends
+  on the actual hosting configuration.
+- **Data licensing:** the NIH ChestX-ray14 sample is included with attribution
+  (`backend/tests/artifacts/real_cxr/ATTRIBUTION.md`). SIIM-ACR files are excluded pending
+  licensing review.
