@@ -24,6 +24,8 @@ import {
 } from 'react';
 import type { UserProfile, Role } from '@/lib/types';
 import { api, ApiError, type MeResponse } from '@/lib/api';
+import { consumeAuthRedirectMessage, type AuthRedirectMessage } from '@/lib/authMessages';
+import { useToast } from '@/context/ToastContext';
 
 interface AuthContextValue {
   user: UserProfile | null;
@@ -33,6 +35,11 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => void;
+  /** Start linking Google to the signed-in account (server-side OAuth flow). */
+  linkGoogle: () => void;
+  /** Outcome of a Google sign-in redirect, shown on the sign-in screen. */
+  authMessage: AuthRedirectMessage | null;
+  clearAuthMessage: () => void;
   signOut: () => void;
   switchRole: (role: Role) => void;
 }
@@ -47,6 +54,7 @@ function toProfile(me: MeResponse, role: Role = 'patient'): UserProfile {
     // Derive a display name from the email (before the @)
     displayName: me.email.split('@')[0],
     role,
+    googleLinked: Boolean(me.google_linked),
   };
 }
 
@@ -55,6 +63,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role>('patient');
   /** True while the initial session-restore call is in flight */
   const [loading, setLoading] = useState(true);
+  const { addToast } = useToast();
+  // Read ?auth_error / ?auth_notice once, before anything else renders.
+  const [authMessage, setAuthMessage] = useState<AuthRedirectMessage | null>(() => consumeAuthRedirectMessage());
+  const clearAuthMessage = useCallback(() => setAuthMessage(null), []);
+
+  // Signed-in users (e.g. after linking Google) get the outcome as a toast.
+  useEffect(() => {
+    if (loading || !user || !authMessage) return;
+    addToast({
+      title: authMessage.kind === 'error' ? 'Google account' : 'Google account linked',
+      description: authMessage.message,
+      variant: authMessage.kind === 'error' ? 'error' : 'success',
+    });
+    setAuthMessage(null);
+  }, [loading, user, authMessage, addToast]);
 
   // ── Restore session on mount ──────────────────────────────────────────────
   useEffect(() => {
@@ -99,6 +122,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = '/api/v1/auth/google';
   }, []);
 
+  const linkGoogle = useCallback(() => {
+    window.location.href = '/api/v1/auth/google/link';
+  }, []);
+
   // ── Sign out ──────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
     try {
@@ -124,6 +151,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signUp,
         signInWithGoogle,
+        linkGoogle,
+        authMessage,
+        clearAuthMessage,
         signOut,
         switchRole,
       }}

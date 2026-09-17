@@ -7,7 +7,7 @@ import { ApiError } from '@/lib/api';
 type AuthMode = 'signin' | 'signup';
 
 export function AuthScreen() {
-  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { signIn, signUp, signInWithGoogle, authMessage, clearAuthMessage } = useAuth();
   const [mode, setMode] = useState<AuthMode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,6 +22,7 @@ export function AuthScreen() {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+    clearAuthMessage();
     
     if (mode === 'signup' && password !== confirmPassword) {
       setError('Passwords do not match.');
@@ -82,6 +83,25 @@ export function AuthScreen() {
           <p className="mb-5 text-sm text-neutral-500 dark:text-neutral-400">
             {mode === 'signin' ? 'Sign in to access your clinical workspace' : 'Sign up to start using HoloMed'}
           </p>
+
+          {authMessage && !error && !success && (
+            <div
+              role="alert"
+              data-testid="auth-redirect-message"
+              className={`mb-4 flex items-start gap-2 rounded-lg border p-3 ${
+                authMessage.kind === 'error'
+                  ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30'
+                  : 'border-teal-200 bg-teal-50 dark:border-teal-800 dark:bg-teal-950/30'
+              }`}
+            >
+              {authMessage.kind === 'error'
+                ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal-600 dark:text-teal-400" />}
+              <p className={`text-sm ${authMessage.kind === 'error' ? 'text-red-700 dark:text-red-400' : 'text-teal-800 dark:text-teal-300'}`}>
+                {authMessage.message}
+              </p>
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950/30">

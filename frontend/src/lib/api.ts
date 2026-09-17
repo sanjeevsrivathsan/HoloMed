@@ -145,6 +145,7 @@ export interface LoginResponse {
 export interface MeResponse {
   id: number;
   email: string;
+  google_linked?: boolean;
 }
 
 /** POST /api/v1/medical-data/patients  |  GET /api/v1/medical-data/patients */

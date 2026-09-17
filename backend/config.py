@@ -3,7 +3,9 @@ from dotenv import load_dotenv
 
 # Load .env if present
 if os.path.exists('.env'):
-    load_dotenv()
+    # Explicit path: a bare load_dotenv() searches from this file's directory and would pick
+    # backend/.env instead of the .env in the working directory (repository root).
+    load_dotenv('.env')
 
 # Environment variables with defaults
 CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(',')
@@ -11,7 +13,30 @@ OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', '')
 DATABASE_URL = os.getenv('DATABASE_URL', f"sqlite:///./data/holomed.db")
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
-GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')  # backend-only secret; never logged or sent to the browser
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or value.strip() == '':
+        return default
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+# Deployment environment: development (default) | production
+HOLOMED_ENV = os.getenv('HOLOMED_ENV', 'development').strip().lower()
+
+# Google Sign-In (OpenID Connect authorization-code flow with PKCE).
+# Register GOOGLE_REDIRECT_URI exactly in the Google Cloud OAuth client. The default matches local
+# development, where the Vite dev server (:5173) proxies /api to the backend.
+GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:5173/api/v1/auth/google/callback')
+# Where the browser lands after Google sign-in (success, or ?auth_error=<code> on failure).
+GOOGLE_POST_LOGIN_URL = os.getenv('GOOGLE_POST_LOGIN_URL', 'http://localhost:5173/')
+
+# Session cookie. Secure defaults to true in production; local HTTP development needs false.
+SESSION_COOKIE_SECURE = _env_bool('SESSION_COOKIE_SECURE', HOLOMED_ENV == 'production')
+# lax (default; frontend and API on the same site) | strict | none (cross-site; requires Secure)
+SESSION_COOKIE_SAMESITE = os.getenv('SESSION_COOKIE_SAMESITE', 'lax').strip().lower()
 
 # Vision AI service (chest radiograph screening model, local checkpoint only)
 # local (default, primary deployment): in-process model on this machine's GPU/CPU; needs no cloud settings.

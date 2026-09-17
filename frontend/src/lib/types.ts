@@ -28,6 +28,8 @@ export interface UserProfile {
   displayName: string;
   role: Role;
   avatarUrl?: string;
+  /** Whether a Google identity is linked to this account (from /api/v1/auth/me). */
+  googleLinked?: boolean;
 }
 
 export interface Patient {

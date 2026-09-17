@@ -4,13 +4,15 @@ import logging
 from .logger import configure_logger
 configure_logger("backend")  # INFO-level, non-sensitive service logs (no images, tokens or identifiers)
 logger = logging.getLogger(__name__)
+from .services.google_oauth import install_access_log_redaction
+install_access_log_redaction()  # keep OAuth callback codes/state out of access logs
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
 from .routers import health, medical_data, dicomweb, auth
 # Load environment variables (requires python-dotenv if .env exists)
 if os.path.exists('.env'):
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv('.env')  # the working-directory .env (see backend/config.py)
 
 app = FastAPI(
     title="HoloMed AI",

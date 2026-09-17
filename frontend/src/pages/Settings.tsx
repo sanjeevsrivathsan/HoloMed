@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 
 export function Settings() {
   const { appTheme, setAppTheme, imagingTheme, setImagingTheme } = useTheme();
-  const { user, role, switchRole } = useAuth();
+  const { user, role, switchRole, linkGoogle } = useAuth();
   const [notifEmail, setNotifEmail] = useState(true);
   const [notifPush, setNotifPush] = useState(false);
   const [notifSummary, setNotifSummary] = useState(true);
@@ -187,6 +187,19 @@ export function Settings() {
                 <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{user?.displayName}</p>
                 <p className="text-xs text-neutral-400">{user?.email}</p>
               </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800" data-testid="google-link">
+              <div>
+                <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Google sign-in</p>
+                <p className="text-xs text-neutral-400">
+                  {user?.googleLinked
+                    ? 'Linked — you can sign in with Google or your existing method.'
+                    : 'Not linked. Linking requires a verified Google account with the same email.'}
+                </p>
+              </div>
+              {user?.googleLinked
+                ? <StatusBadge variant="success">Linked</StatusBadge>
+                : <Button size="sm" variant="outline" onClick={linkGoogle}>Link Google account</Button>}
             </div>
             <div>
               <p className="mb-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">Active Role</p>

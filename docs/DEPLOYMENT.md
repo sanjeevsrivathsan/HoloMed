@@ -90,7 +90,8 @@ See `.env.example` for the full annotated list. Never commit real values; `.env`
 |---|---|
 | Vision | `VISION_PROVIDER=cloud`, `VISION_CLOUD_URL`, `VISION_CLOUD_TOKEN`, `VISION_CLOUD_TIMEOUT_SECONDS` |
 | Text AI (hosted) | `TEXT_AI_PROVIDER=omniroute`, `OMNIROUTE_BASE_URL`, `OMNIROUTE_API_KEY`, `OMNIROUTE_MODEL` |
-| Auth / CORS | `JWT_SECRET`, `CORS_ORIGINS`; optionally `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+| Auth / CORS | `JWT_SECRET`, `CORS_ORIGINS`, `HOLOMED_ENV=production`, `SESSION_COOKIE_SECURE`, `SESSION_COOKIE_SAMESITE` |
+| Google Sign-In (optional) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (backend-only secret), `GOOGLE_REDIRECT_URI`, `GOOGLE_POST_LOGIN_URL` |
 
 ### Modal worker
 - `VISION_WORKER_TOKEN` comes from the Modal Secret `holomed-vision-worker`.
@@ -198,7 +199,57 @@ curl -s https://<host>/api/v1/vision/status      # expect provider "cloud" and s
 Then run the browser workflow (upload, screen, select a finding, view Grad-CAM and the
 explanation).
 
-## 6. Switching providers
+## 6. Authentication
+
+- **Password sign-in:** `POST /api/v1/auth/register` and `POST /api/v1/auth/login`. The login sets
+  an HttpOnly `session` cookie containing an HS256 JWT (`sub` = user id).
+- **Sign-out and session check:** `POST /api/v1/auth/logout` clears the cookie;
+  `GET /api/v1/auth/me` returns the current user.
+- **Google Sign-In:** optional. It uses the OpenID Connect authorization-code flow with PKCE,
+  handled entirely by the backend.
+
+### How Google Sign-In works
+1. `GET /api/v1/auth/google` redirects to Google.
+   - It requests only the `openid email profile` scopes, with `access_type=online`.
+   - The request carries a random `state`, a nonce and a PKCE S256 challenge.
+   - Those values are held only in a signed, HttpOnly, SameSite=Lax, 10-minute cookie scoped to
+     `/api/v1/auth/google`. Each value is single-use.
+2. `GET /api/v1/auth/google/callback` validates the `state` and exchanges the code, sending the
+   client secret and the PKCE verifier.
+3. The backend verifies the ID token with Google's `google-auth` library, which checks the
+   signature, issuer, audience (the client ID), `iat` and `exp`. The backend then checks `nbf`,
+   the nonce, `sub`, `email` and `email_verified`.
+   - No Google access or refresh tokens are stored.
+   - The callback's query string is redacted from access logs.
+4. **Account mapping:** Google's stable `sub` is stored as `user.google_id`.
+   - A known `sub` signs in to its account.
+   - A new verified email creates a Google-only account.
+   - An existing account with the same email but no Google link is **not** linked
+     automatically. The user signs in with the password, then uses *Settings → Profile → Link
+     Google account* (`GET /api/v1/auth/google/link`), which requires the same verified email.
+   - A `sub` already linked to another account is rejected.
+5. **Result:** success sets the same `session` cookie as password sign-in and redirects to
+   `GOOGLE_POST_LOGIN_URL`. Any failure redirects there with `?auth_error=<code>`, a short code
+   that never contains tokens, codes, state or secrets, and creates no user or session.
+
+### Configuration
+- **Client secret:** `GOOGLE_CLIENT_SECRET` is a backend secret. Never put it in the frontend or
+  in `VITE_*` variables.
+- **Local development redirect URI:** register exactly
+  `http://localhost:5173/api/v1/auth/google/callback` in the Google Cloud OAuth *Web application*
+  client. The Vite dev server proxies it to the backend.
+  - Open the app at `http://localhost:5173`, not `127.0.0.1`, so the cookies match.
+- **Production:** set these, then register the same `GOOGLE_REDIRECT_URI` in Google Cloud:
+  - `GOOGLE_REDIRECT_URI=https://<your-host>/api/v1/auth/google/callback`
+  - `GOOGLE_POST_LOGIN_URL=https://<your-host>/`
+  - `HOLOMED_ENV=production` (Secure cookies)
+  - `SESSION_COOKIE_SAMESITE=lax` if the frontend and API share a site, or `none` for a
+    cross-site frontend (this forces Secure)
+  - `CORS_ORIGINS=https://<your-frontend>`
+- **Without Google configured:** the Google button returns the user to the sign-in screen with
+  "Google sign-in is not configured".
+
+## 7. Switching providers
 
 | Goal | Setting |
 |---|---|
@@ -222,7 +273,7 @@ The status endpoint returns only
 - **Misconfiguration:** an unknown or unconfigured provider returns `503`. Nothing falls back
   silently to another provider.
 
-## 7. Cold start and performance
+## 8. Cold start and performance
 
 | Setup | Measurement |
 |---|---|
@@ -230,7 +281,7 @@ The status endpoint returns only
 | Local explanations (qwen3:8b) | About 5–6 s median per finding. The first call after Ollama starts can take about 60 s while the model loads. |
 | Modal (T4) | **Not measured yet.** With scale to zero, the first request after idle includes container start, weight load and warm-up; the worker preloads at container start. The observed numbers will be recorded here. |
 
-## 8. Limitations
+## 9. Limitations
 - **Not clinically validated:** a research/hackathon demonstration only. Scores are uncalibrated
   model outputs, and Grad-CAM is not evidence of disease.
 - **Throughput:** one Grad-CAM at a time per process (model lock).
