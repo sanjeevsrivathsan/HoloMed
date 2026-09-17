@@ -64,3 +64,10 @@ function readAndStrip(): AuthRedirectMessage | null {
   const code = notice as string;
   return NOTICES[code] ? { kind: 'notice', code, message: NOTICES[code] } : null;
 }
+
+/** Message for a Google sign-in outcome reported by the sign-in popup. */
+export function authMessageFor(error: string | null, notice: string | null): AuthRedirectMessage | null {
+  if (error) return { kind: 'error', code: error, message: ERRORS[error] ?? RETRY };
+  if (notice && NOTICES[notice]) return { kind: 'notice', code: notice, message: NOTICES[notice] };
+  return null;
+}

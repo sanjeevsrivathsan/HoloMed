@@ -153,8 +153,10 @@ cd frontend && npm run typecheck && npm test && npm run build   # npm test: proc
 ```
 
 Medical report ingestion (upload, extraction, review, summaries, demo data) is described in
-[`MEDICAL_REPORTS.md`](MEDICAL_REPORTS.md). Database changes for it are in Alembic revision
-`7a1c2e3d4f50` and `7a2b3c4d5e60`. The backend creates missing tables at startup and logs an error
+[`MEDICAL_REPORTS.md`](MEDICAL_REPORTS.md). Database changes for it are in Alembic revisions
+`7a1c2e3d4f50`, `7a2b3c4d5e60` and `7b1a2c3d4e50` (report-date provenance:
+`report.date_source`, `report.date_confirmed`, `report.detected_date`,
+`reportextraction.date_candidates`). The backend creates missing tables at startup and logs an error
 if existing tables lack model columns; run `alembic upgrade head` in that case (see
 MEDICAL_REPORTS.md § 2).
 
@@ -209,6 +211,30 @@ curl -s https://<host>/api/v1/vision/status      # expect provider "cloud" and s
 Then run the browser workflow (upload, screen, select a finding, view Grad-CAM and the
 explanation).
 
+### Front-end routes (SPA history routing)
+
+The workspace mirrors its page in the URL with the History API: `/imaging`, `/reports`,
+`/reports/<id>`, `/clinical/<id>`, `/overview`, `/search`, `/timeline`, `/templates`,
+`/privacy`, `/storage`, `/settings`. Browser Back/Forward, refresh and deep links therefore
+work. **Any production web server must serve `index.html` for unknown paths** (`try_files $uri
+/index.html` in nginx, or the equivalent), otherwise a refresh on `/reports/12` returns 404.
+The Vite dev server already does this.
+
+### OHIF viewer
+
+The prebuilt viewer in `frontend/ohif` is served by FastAPI at `/ohif` and proxied by Vite.
+
+- `frontend/ohif/app-config.js` must set `routerBasename: "/ohif/"`. With the default `"/"`
+  the viewer mounts nothing and the page stays blank.
+- The static mount falls back to `index.html` for extension-less paths, so `/ohif/viewer?...`
+  and a refresh inside the viewer work.
+- The viewer reads studies from the backend's DICOMweb endpoints
+  (`/api/v1/dicomweb/...`): QIDO returns standard DICOM JSON when the client sends
+  `Accept: application/dicom+json`, and WADO-RS frames are served as `multipart/related`
+  (encapsulated frames keep their transfer syntax; uncompressed frames are sent as
+  `application/octet-stream`). Every request is scoped to the signed-in owner's studies.
+- The Imaging workspace embeds `${VITE_OHIF_URL or /ohif/}viewer?StudyInstanceUIDs=<uid>`.
+
 ## 6. Authentication
 
 - **Password sign-in:** `POST /api/v1/auth/register` and `POST /api/v1/auth/login`. The login sets
@@ -219,6 +245,15 @@ explanation).
   handled entirely by the backend.
 
 ### How Google Sign-In works
+0. The frontend opens `/api/v1/auth/google?popup=1` in a **popup window** (the link flow uses
+   `/api/v1/auth/google/link?popup=1`). Running the redirects in a popup keeps Google's pages out
+   of the main window's session history, so the browser Back button stays inside HoloMed. The popup
+   ends on `?auth_popup=1`, signals the opener (BroadcastChannel / same-origin postMessage) and
+   closes; the main window then re-checks `GET /api/v1/auth/me` — **the signal itself carries no
+   authority**. If the browser blocks popups, the classic full-page redirect is used instead. The
+   popup mode is remembered in a short-lived HttpOnly cookie
+   (`holomed_google_popup`, scoped to `/api/v1/auth/google`), so the callback knows where to
+   send the result.
 1. `GET /api/v1/auth/google` redirects to Google.
    - It requests only the `openid email profile` scopes, with `access_type=online`.
    - The request carries a random `state`, a nonce and a PKCE S256 challenge.

@@ -5,7 +5,6 @@ import type {
   StorageConnection,
   ImagingStudy,
   SummaryMode,
-  ReportSummarySection,
 } from './types';
 
 export interface OllamaService {

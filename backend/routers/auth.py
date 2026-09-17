@@ -72,25 +72,42 @@ def _no_store(response):
     return response
 
 
+# Marks a sign-in started in a popup window. Not security relevant: the popup result page only asks the
+# main window to re-check the session. Lets every outcome, even an invalid flow, return to the popup page.
+POPUP_COOKIE = "holomed_google_popup"
+
+
 def _clear_flow_cookie(response) -> None:
-    response.delete_cookie(key=google_oauth.FLOW_COOKIE, path=google_oauth.FLOW_COOKIE_PATH,
-                           httponly=True, secure=auth_cookies.secure(), samesite="lax")
+    for key in (google_oauth.FLOW_COOKIE, POPUP_COOKIE):
+        response.delete_cookie(key=key, path=google_oauth.FLOW_COOKIE_PATH,
+                               httponly=True, secure=auth_cookies.secure(), samesite="lax")
 
 
-def _failure(code: str) -> RedirectResponse:
+def _is_popup(request: Optional[Request]) -> bool:
+    return request is not None and request.cookies.get(POPUP_COOKIE) == "1"
+
+
+def _failure(code: str, popup: bool = False) -> RedirectResponse:
     logger.warning("Google sign-in failed: %s", code)
-    response = RedirectResponse(url=google_oauth.error_redirect_url(code), status_code=302)
+    response = RedirectResponse(url=google_oauth.error_redirect_url(code, popup), status_code=302)
     _clear_flow_cookie(response)
     return _no_store(response)
 
 
-def _start(purpose: str, user_id: Optional[int] = None) -> RedirectResponse:
+def _start(purpose: str, user_id: Optional[int] = None, popup: bool = False) -> RedirectResponse:
     url, flow_cookie = google_oauth.begin(purpose, user_id)
     response = RedirectResponse(url=url, status_code=302)
     # SameSite=Lax: sent on Google's top-level redirect back to the callback, not on cross-site subrequests.
     response.set_cookie(key=google_oauth.FLOW_COOKIE, value=flow_cookie, max_age=google_oauth.FLOW_TTL_SECONDS,
                         path=google_oauth.FLOW_COOKIE_PATH, httponly=True,
                         secure=auth_cookies.secure(), samesite="lax")
+    if popup:
+        response.set_cookie(key=POPUP_COOKIE, value="1", max_age=google_oauth.FLOW_TTL_SECONDS,
+                            path=google_oauth.FLOW_COOKIE_PATH, httponly=True,
+                            secure=auth_cookies.secure(), samesite="lax")
+    else:
+        response.delete_cookie(key=POPUP_COOKIE, path=google_oauth.FLOW_COOKIE_PATH,
+                               httponly=True, secure=auth_cookies.secure(), samesite="lax")
     return _no_store(response)
 
 
@@ -108,32 +125,35 @@ def _session_user(request: Request, db: Session) -> Optional[User]:
 
 
 @router.get("/google")
-def google_login():
+def google_login(popup: bool = False):
+    """Start Google sign-in. popup=1: the flow runs in a popup window, keeping Google's pages
+    out of the main window's history."""
     if not google_oauth.is_configured():
-        return _failure("google_not_configured")
-    return _start("login")
+        return _failure("google_not_configured", popup)
+    return _start("login", popup=popup)
 
 
 @router.get("/google/link")
-def google_link(request: Request, db: Session = Depends(get_session)):
+def google_link(request: Request, popup: bool = False, db: Session = Depends(get_session)):
     """Start linking Google to the currently signed-in HoloMed account."""
     if not google_oauth.is_configured():
-        return _failure("google_not_configured")
+        return _failure("google_not_configured", popup)
     user = _session_user(request, db)
     if user is None:
-        return _failure("link_requires_login")
-    return _start("link", user.id)
+        return _failure("link_requires_login", popup)
+    return _start("link", user.id, popup=popup)
 
 
 @router.get("/google/callback")
 def google_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None,
                     error: Optional[str] = None, db: Session = Depends(get_session)):
     flow_cookie = request.cookies.get(google_oauth.FLOW_COOKIE)
+    popup = _is_popup(request)
     if not google_oauth.is_configured():
-        return _failure("google_not_configured")
+        return _failure("google_not_configured", popup)
     if error:
         google_oauth.discard_flow(flow_cookie)
-        return _failure("google_cancelled" if error == "access_denied" else "google_failed")
+        return _failure("google_cancelled" if error == "access_denied" else "google_failed", popup)
     try:
         flow = google_oauth.consume_flow(flow_cookie, state)
         if not code:
@@ -147,7 +167,8 @@ def google_callback(request: Request, code: Optional[str] = None, state: Optiona
             if user is None or user.id != flow.user_id:
                 raise google_oauth.GoogleSignInError("link_requires_login")
             google_oauth.link_google(db, user, sub, email)
-            response = RedirectResponse(url=google_oauth.success_redirect_url("google_linked"), status_code=302)
+            response = RedirectResponse(url=google_oauth.success_redirect_url("google_linked", popup),
+                                        status_code=302)
             _clear_flow_cookie(response)
             return _no_store(response)
 
@@ -155,13 +176,13 @@ def google_callback(request: Request, code: Optional[str] = None, state: Optiona
         if not user.is_active:
             raise google_oauth.GoogleSignInError("account_disabled")
     except google_oauth.GoogleSignInError as exc:
-        return _failure(exc.code)
+        return _failure(exc.code, popup)
     except Exception:
         logger.exception("Unexpected Google sign-in error")
-        return _failure("google_failed")
+        return _failure("google_failed", popup)
 
     session_token = create_access_token({"sub": str(user.id)})
-    response = RedirectResponse(url=google_oauth.success_redirect_url(), status_code=302)
+    response = RedirectResponse(url=google_oauth.success_redirect_url(popup=popup), status_code=302)
     auth_cookies.set_session_cookie(response, session_token)
     _clear_flow_cookie(response)
     logger.info("Google sign-in succeeded for user %s", user.id)

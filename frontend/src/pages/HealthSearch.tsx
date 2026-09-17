@@ -6,7 +6,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { NoResultsState } from '@/components/States';
 import { SourceReferenceList } from '@/components/SourceReference';
 import { api } from '@/lib/api';
-import { errorMessage, flagLabels, flagVariant, reportStatusLabels } from '@/lib/reports';
+import { errorMessage, flagLabels, flagVariant, reportStatusShort } from '@/lib/reports';
 import type { Report, MedicalMeasurement, SourceReference } from '@/lib/types';
 
 interface SearchInterpretation {
@@ -45,7 +45,7 @@ export function HealthSearch({ reports, measurements, sourceReferences, onSelect
   const [hospitalFilter, setHospitalFilter] = useState('All');
   const [testNameFilter, setTestNameFilter] = useState('All');
   const [flagFilter, setFlagFilter] = useState('All');
-  const [hasSearched, setHasSearched] = useState(false);
+  const [, setHasSearched] = useState(false);
   const [searchResult, setSearchResult] = useState<{ reportIds: string[], measurementIds: string[], interpretation?: SearchInterpretation } | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -70,7 +70,7 @@ export function HealthSearch({ reports, measurements, sourceReferences, onSelect
       if (searchResult && !searchResult.reportIds.includes(r.id)) return false;
       if (search && !r.title.toLowerCase().includes(search.toLowerCase())) return false;
       if (typeFilter !== 'All' && r.type !== typeFilter) return false;
-      if (statusFilter !== 'All' && (r.status === 'ready' ? 'completed' : r.status) !== statusFilter) return false;
+      if (statusFilter !== 'All' && (r.processingStatus === 'processed' ? r.reviewStatus : r.processingStatus) !== statusFilter) return false;
       if (hospitalFilter !== 'All' && r.hospital !== hospitalFilter && r.laboratory !== hospitalFilter) return false;
       return true;
     });
@@ -185,7 +185,7 @@ export function HealthSearch({ reports, measurements, sourceReferences, onSelect
             <SelectFilter label="Source" value={hospitalFilter} options={hospitals.map(h => ({ value: h, label: h }))} onChange={setHospitalFilter} />
             <SelectFilter label="Test" value={testNameFilter} options={testNames.map(t => ({ value: t, label: t }))} onChange={setTestNameFilter} />
             <SelectFilter label="Flag" value={flagFilter} options={(['All', 'high', 'low', 'abnormal', 'normal', 'unknown'] as const).map(f => ({ value: f, label: f === 'All' ? 'All' : flagLabels[f] }))} onChange={setFlagFilter} />
-            <SelectFilter label="Status" value={statusFilter} options={(['All', 'processing', 'needs_review', 'confirmed', 'completed', 'failed'] as const).map(s => ({ value: s, label: s === 'All' ? 'All' : reportStatusLabels[s] }))} onChange={setStatusFilter} />
+            <SelectFilter label="Status" value={statusFilter} options={[['All', 'All'], ['processing', 'Processing'], ['needs_review', 'Needs review'], ['partially_confirmed', 'Partially confirmed'], ['confirmed', 'Confirmed'], ['failed', 'Processing failed']].map(([value, label]) => ({ value, label }))} onChange={setStatusFilter} />
           </FilterBar>
         </div>
       </Card>
@@ -206,7 +206,7 @@ export function HealthSearch({ reports, measurements, sourceReferences, onSelect
                   className="flex w-full flex-col gap-1 px-5 py-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
                 >
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{report.title}</p>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{report.type} · {report.source} · {formatDate(report.date)} · {reportStatusLabels[report.status]}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{report.type} · {report.source} · {formatDate(report.date)} · {reportStatusShort(report)}</p>
                 </button>
               ))
             )}

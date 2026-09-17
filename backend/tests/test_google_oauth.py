@@ -640,3 +640,53 @@ def test_access_log_redacts_callback_query():
     google_oauth.install_access_log_redaction()
     assert any(isinstance(f, google_oauth.RedactOAuthCallbackQuery)
                for f in logging.getLogger("uvicorn.access").filters)
+
+
+# ── popup mode (keeps Google's pages out of the main window history) ──────
+def popup_query(resp):
+    location = resp.headers["location"]
+    assert location.startswith(POST_LOGIN)
+    return {k: v[0] for k, v in parse_qs(urlsplit(location).query).items()}
+
+
+def test_popup_login_returns_to_popup_result_page(client, google):
+    resp, p = start(client, google, "/api/v1/auth/google?popup=1")
+    popup_cookie = [c for c in set_cookies(resp) if c.startswith("holomed_google_popup=")]
+    assert len(popup_cookie) == 1
+    attrs = popup_cookie[0].lower()
+    assert "httponly" in attrs and "samesite=lax" in attrs and "path=/api/v1/auth/google" in attrs
+    # the authorization request itself is unchanged (state, PKCE, nonce)
+    assert p["code_challenge_method"] == "S256" and len(p["state"]) >= 43
+    resp = callback(client, code=AUTH_CODE, state=p["state"])
+    assert popup_query(resp) == {"auth_popup": "1"}
+    assert session_cookie_set(resp) and flow_cookie_cleared(resp)
+    assert any(c.startswith("holomed_google_popup=") and ("Max-Age=0" in c or "expires=" in c.lower())
+               for c in set_cookies(resp))
+    assert client.get("/api/v1/auth/me").status_code == 200
+
+
+def test_popup_failures_and_cancellation_return_to_popup_page(client, google):
+    _, p = start(client, google, "/api/v1/auth/google?popup=1")
+    assert popup_query(callback(client, error="access_denied", state=p["state"])) == \
+        {"auth_popup": "1", "auth_error": "google_cancelled"}
+    _, p = start(client, google, "/api/v1/auth/google?popup=1")
+    # an invalid flow is still reported to the popup page (the popup cookie is independent of the flow)
+    assert popup_query(callback(client, code=AUTH_CODE, state="attacker")) == \
+        {"auth_popup": "1", "auth_error": "invalid_state"}
+    assert users() == []
+    assert popup_query(client.get("/api/v1/auth/google/link?popup=1")) == \
+        {"auth_popup": "1", "auth_error": "link_requires_login"}
+
+
+def test_popup_link_and_redirect_mode_is_unchanged(client, google):
+    with Session(engine) as s:
+        create_user(EMAIL, "Password123!", s)
+    login_password(client, EMAIL, "Password123!")
+    _, p = start(client, google, "/api/v1/auth/google/link?popup=1")
+    assert popup_query(callback(client, code=AUTH_CODE, state=p["state"])) == \
+        {"auth_popup": "1", "auth_notice": "google_linked"}
+    # a later full-page sign-in clears any stale popup marker and returns to the app itself
+    client.cookies.clear()
+    resp, p = start(client, google)
+    assert any(c.startswith("holomed_google_popup=") and "Max-Age=0" in c for c in set_cookies(resp))
+    assert callback(client, code=AUTH_CODE, state=p["state"]).headers["location"] == POST_LOGIN

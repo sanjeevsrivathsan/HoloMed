@@ -20,9 +20,6 @@ export function PrivacyCenter({ consents, auditEvents, storageConnections }: Pri
   const [draftType, setDraftType] = useState<'access' | 'deletion' | 'portability'>('access');
   const [draftText, setDraftText] = useState('');
 
-  const activeConsents = consents.filter((c) => !c.revoked);
-  const revokedConsents = consents.filter((c) => c.revoked);
-  const connectedStorage = storageConnections.filter((s) => s.status === 'connected');
 
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 

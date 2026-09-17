@@ -7,24 +7,13 @@ import { Card, CardHeader } from '@/components/Card';
 import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/States';
 import { flagLabels, flagVariant } from '@/lib/reports';
+import { printedBounds } from '@/lib/ranges';
 import type { MedicalMeasurement, Report } from '@/lib/types';
 
 interface HealthTimelineProps {
   measurements: MedicalMeasurement[];
   reports: Report[];
   onOpenReport: (reportId: string) => void;
-}
-
-/** Bounds of a reference range exactly as printed ("4.0 - 5.6", "<100", ">40"); nothing is inferred. */
-function printedBounds(range?: string): { lower?: number; upper?: number } {
-  if (!range) return {};
-  const between = range.match(/(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)/);
-  if (between) return { lower: parseFloat(between[1]), upper: parseFloat(between[2]) };
-  const upper = range.match(/^\s*[<≤]=?\s*(\d+(?:\.\d+)?)/);
-  if (upper) return { upper: parseFloat(upper[1]) };
-  const lower = range.match(/^\s*[>≥]=?\s*(\d+(?:\.\d+)?)/);
-  if (lower) return { lower: parseFloat(lower[1]) };
-  return {};
 }
 
 const availableMetrics = ['HbA1c', 'LDL', 'HDL', 'Hemoglobin', 'WBC', 'Glucose (fasting)', 'Creatinine', 'Blood Pressure (systolic)', 'Blood Pressure (diastolic)'];

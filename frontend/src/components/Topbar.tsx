@@ -1,7 +1,6 @@
 import { Bell, ChevronDown, User, LogOut, Stethoscope, Shield, Menu } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { ThemeToggle } from './ThemeControls';
-import { StatusBadge } from './StatusBadge';
 import type { PageKey } from './Sidebar';
 import { useAuth } from '@/context/AuthContext';
 import type { Role } from '@/lib/types';

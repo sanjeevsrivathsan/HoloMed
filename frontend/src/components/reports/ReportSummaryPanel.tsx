@@ -4,20 +4,32 @@ import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/States';
 import { SafetyNotice } from '@/components/SafetyNotice';
 import { summaryModeLabels } from '@/lib/demo-data';
-import { AI_SAFETY_MESSAGE, errorMessage, isProcessing, isReviewable, reportsApi } from '@/lib/reports';
+import { AI_SAFETY_MESSAGE, errorMessage, isProcessing, reportsApi } from '@/lib/reports';
 import { aiSummaryAvailability, type TextAiState } from '@/lib/processingStages';
 import { ApiError } from '@/lib/api';
 import type { Report, SummaryMode } from '@/lib/types';
 
 const MODES: SummaryMode[] = ['quick', 'standard', 'detailed', 'clinical', 'custom'];
 const SECTION_CHOICES = [
-  { key: 'executive', label: 'Overview' },
+  { key: 'overview', label: 'Report overview' },
+  { key: 'executive', label: 'Summary' },
   { key: 'findings', label: 'Confirmed results' },
   { key: 'abnormal', label: 'Results flagged in the report' },
   { key: 'normal', label: 'Results marked normal' },
   { key: 'terms', label: 'What these tests measure' },
+  { key: 'trends', label: 'Changes since earlier results' },
   { key: 'questions', label: 'Questions for your clinician' },
+  { key: 'extraction', label: 'Extraction notes' },
+  { key: 'limitations', label: 'Data limitations' },
+  { key: 'provenance', label: 'Source and provenance' },
 ];
+const MODE_HELP: Record<SummaryMode, string> = {
+  quick: 'Short overview, confirmed results and laboratory flags.',
+  standard: 'Overview, results, flags, test explanations, changes over time and questions.',
+  detailed: 'Everything in Standard plus page references, values marked normal and extraction notes.',
+  clinical: 'Concise structured summary with dates, flags, changes and provenance. No language model is used.',
+  custom: 'All sections; choose which to show.',
+};
 /** Sections written by the language model; the others are copied from confirmed report data. */
 const AI_SECTIONS = new Set(['executive', 'terms', 'questions']);
 
@@ -46,7 +58,11 @@ export function ReportSummaryPanel({ report, onGenerated }: ReportSummaryPanelPr
   }
 
   const generating = generatingFor === report.id;
-  const ready = !isProcessing(report.status) && !isReviewable(report.status) && report.status !== 'failed';
+  const processed = report.processingStatus ? report.processingStatus === 'processed'
+    : !isProcessing(report.status) && report.status !== 'failed';
+  const confirmed = report.measurementCount ?? 0;
+  const detected = report.candidateCount ?? 0;
+  const ready = processed && (confirmed > 0 || detected === 0);
 
   const generate = async () => {
     setGeneratingFor(report.id);
@@ -82,7 +98,9 @@ export function ReportSummaryPanel({ report, onGenerated }: ReportSummaryPanelPr
           title="Summary not available yet"
           description={report.status === 'failed'
             ? 'This document could not be processed, so there is nothing to summarise.'
-            : 'Review and confirm the extracted content first. Summaries only use information you have confirmed.'}
+            : processed
+              ? `${detected} value(s) were detected but none is confirmed yet. Confirm values in the Values tab — summaries only use information you have confirmed.`
+              : 'The document is still being processed.'}
           icon={<FileSearch className="h-6 w-6" />}
         />
       ) : (
@@ -113,6 +131,7 @@ export function ReportSummaryPanel({ report, onGenerated }: ReportSummaryPanelPr
                 </button>
               ))}
             </div>
+            <p className="mt-1.5 text-xs text-neutral-500" data-testid="summary-mode-help">{MODE_HELP[mode]}</p>
             {mode === 'custom' && (
               <div className="mt-2 space-y-1.5 rounded-lg border border-neutral-200 p-2 dark:border-neutral-700">
                 {SECTION_CHOICES.map((s) => (
@@ -129,7 +148,7 @@ export function ReportSummaryPanel({ report, onGenerated }: ReportSummaryPanelPr
               </div>
             )}
             <div className="mt-3 flex items-center justify-end gap-2">
-              {generating && <span className="text-xs text-neutral-400">This can take up to a minute with a local model.</span>}
+              {generating && <span className="text-xs text-neutral-400" role="status">Generating summary… this can take up to a minute with a local model.</span>}
               <Button onClick={generate} disabled={generating} size="sm" variant={summary ? 'outline' : 'primary'} data-testid="summary-generate">
                 {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                 {generating ? 'Generating…' : summary ? 'Regenerate summary' : 'Generate AI summary'}
@@ -149,7 +168,7 @@ export function ReportSummaryPanel({ report, onGenerated }: ReportSummaryPanelPr
                 <div key={section.key} className="rounded-lg border border-teal-200 bg-teal-50/40 p-3 dark:border-teal-800/50 dark:bg-teal-950/10">
                   <p className="mb-1.5 flex items-center justify-between gap-2 text-xs font-semibold text-teal-700 dark:text-teal-400">
                     {section.label}
-                    <span className="font-normal text-neutral-400">{AI_SECTIONS.has(section.key) ? 'AI-generated' : 'From confirmed report data'}</span>
+                    <span className="font-normal text-neutral-400">{(section.source ? section.source === 'ai' : AI_SECTIONS.has(section.key)) ? 'AI-generated' : 'From confirmed report data'}</span>
                   </p>
                   <p className="whitespace-pre-line text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">{section.content}</p>
                 </div>

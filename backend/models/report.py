@@ -13,7 +13,14 @@ class Report(SQLModel, table=True):
     type: str = Field(default="Other")
     source: str = Field(default="Upload")
     report_date: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-    status: str = Field(default="ready")  # uploaded, processing, extracted, needs_review, confirmed, completed, failed (legacy: ready)
+    # uploaded | processing | extracted | needs_review | partially_confirmed | confirmed | failed
+    # (legacy rows: ready, completed)
+    status: str = Field(default="ready")
+    # Report date provenance. None = legacy row (created before date confirmation existed).
+    # date_source: upload_default | user_entered | extracted | user_override
+    date_source: Optional[str] = None
+    date_confirmed: Optional[bool] = None
+    detected_date: Optional[str] = None       # date suggested from the document (ISO), kept after overrides
     
     # Optional metadata
     hospital: Optional[str] = None
@@ -38,6 +45,9 @@ class ReportRead(SQLModel):
     source: str
     report_date: str
     status: str
+    date_source: Optional[str] = None
+    date_confirmed: Optional[bool] = None
+    detected_date: Optional[str] = None
     hospital: Optional[str] = None
     laboratory: Optional[str] = None
     department: Optional[str] = None

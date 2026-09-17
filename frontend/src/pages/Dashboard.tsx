@@ -1,7 +1,7 @@
 import { FileText, ScanLine, Sparkles, TrendingUp, Clock, ArrowRight, AlertCircle } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
 import { StatusBadge } from '@/components/StatusBadge';
-import { isProcessing, isReviewable, reportStatusLabels, statusVariant } from '@/lib/reports';
+import { isProcessing, isReviewable, reportStatusShort, reportVariant } from '@/lib/reports';
 import type { Report, ImagingStudy, AuditEvent, MedicalMeasurement } from '@/lib/types';
 import type { PageKey } from '@/components/Sidebar';
 import {
@@ -139,8 +139,8 @@ export function Dashboard({ reports, studies, measurements, auditEvents, patient
                   <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{report.title}</p>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">{report.source} · {formatDate(report.date)}</p>
                 </div>
-                <StatusBadge variant={statusVariant(report.status)} pulse={isProcessing(report.status)}>
-                  {reportStatusLabels[report.status]}
+                <StatusBadge variant={reportVariant(report)} pulse={isProcessing(report.status)}>
+                  {reportStatusShort(report)}
                 </StatusBadge>
               </button>
             ))}

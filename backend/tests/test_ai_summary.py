@@ -83,8 +83,10 @@ def test_report_summary(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     assert summary["report_id"] == report_id
     assert summary["safety_message"].startswith("AI-generated information")
     sections = json.loads(summary["sections"])
-    assert sections[0] == {"key": "executive", "label": "Overview",
-                           "content": "This blood test report lists an HbA1c result.", "visible": True}
+    executive = next(s for s in sections if s["key"] == "executive")
+    assert executive == {"key": "executive", "label": "Summary", "source": "ai",
+                         "content": "This blood test report lists an HbA1c result.", "visible": True}
+    assert sections[0]["key"] == "overview" and sections[0]["source"] == "data"
 
     # Get summary
     response = client.get(f"/api/v1/reports/{report_id}/summary")

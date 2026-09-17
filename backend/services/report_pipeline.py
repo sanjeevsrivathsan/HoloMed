@@ -1,7 +1,11 @@
 """Report ingestion lifecycle.
 
-    uploaded → processing → extracted | needs_review → confirmed → completed
-                         ↘ failed (retry allowed)
+    processing:  uploaded → processing → processed | failed (retry allowed)
+    review:      needs_review → partially_confirmed → confirmed
+                 (the report date and every value are confirmed or ignored by the user)
+
+The stored ``status`` combines both (extracted / needs_review / partially_confirmed /
+confirmed while processed); API responses expose them separately.
 
 The original upload is stored once and never changed. Extraction output
 (text, measurement candidates) lives in derived tables; canonical
@@ -32,8 +36,9 @@ UPLOADED = "uploaded"
 PROCESSING = "processing"
 EXTRACTED = "extracted"
 NEEDS_REVIEW = "needs_review"
+PARTIALLY_CONFIRMED = "partially_confirmed"
 CONFIRMED = "confirmed"
-COMPLETED = "completed"
+COMPLETED = "completed"          # legacy: summary generated (no longer set)
 FAILED = "failed"
 LEGACY_READY = "ready"
 
@@ -219,14 +224,18 @@ def process(engine: Engine, report_id: int) -> None:
             extraction.status = "succeeded"
             extraction.stage = STAGE_DONE
             extraction.document_date = parsed.document_date
+            extraction.date_candidates = json.dumps([vars(c) for c in parsed.date_candidates])
             extraction.warnings = json.dumps(warnings)
             timings["total_ms"] = elapsed()
             extraction.timings = json.dumps(timings)
             extraction.updated_at = _now()
-            if parsed.document_date and "T" in (report.report_date or ""):
-                # The upload time was only a placeholder; show the date printed in the document
-                # (the user still confirms or corrects it during review).
-                report.report_date = parsed.document_date
+            if not date_is_confirmed(report):
+                report.detected_date = parsed.document_date
+                if parsed.document_date:
+                    # Provisional: shown as "detected, not confirmed" until the user confirms it.
+                    report.report_date = parsed.document_date
+                    report.date_source = "extracted"
+                report.date_confirmed = False
             report.status = NEEDS_REVIEW if added else EXTRACTED
             session.add(extraction)
             session.add(report)
@@ -288,37 +297,146 @@ def stages(extraction: Optional[ReportExtraction], candidate_count: int = 0) -> 
     return out
 
 
-def confirm(session: Session, report: Report, report_date: date) -> int:
-    """Turn accepted candidates into canonical measurements. Returns the number created."""
-    candidates = session.exec(select(ExtractedMeasurement).where(
-        ExtractedMeasurement.report_id == report.id)).all()
-    created = 0
-    for cand in candidates:
-        if cand.measurement_id is not None:
+class ReviewError(ValueError):
+    """A review action that is not allowed in the report's current state."""
+
+
+def date_is_confirmed(report: Report) -> bool:
+    if report.date_confirmed is not None:
+        return bool(report.date_confirmed)
+    # legacy rows (before date confirmation existed): reviewed reports count as confirmed
+    return report.status in (CONFIRMED, COMPLETED, LEGACY_READY)
+
+
+def review_counts(session: Session, report_ids: List[int]) -> dict:
+    """{report_id: {detected, confirmed, pending, ignored}} for the given reports."""
+    counts = {rid: {"detected": 0, "confirmed": 0, "pending": 0, "ignored": 0} for rid in report_ids}
+    if not report_ids:
+        return counts
+    for cand in session.exec(select(ExtractedMeasurement).where(ExtractedMeasurement.report_id.in_(report_ids))):
+        c = counts[cand.report_id]
+        if cand.review_status == "rejected":
+            c["ignored"] += 1
             continue
-        if cand.review_status == "accepted":
-            if cand.value is None:
-                raise ValueError(f"A value is missing for {cand.test_name}")
-            m = MedicalMeasurement(
-                test_name=cand.test_name, value=cand.value, unit=cand.unit,
-                reference_range=cand.reference_range, flag=cand.flag, report_date=report_date,
-                hospital=report.hospital, laboratory=report.laboratory, department=report.department,
-                comments=("Edited during review" if cand.edited else "Confirmed during review"),
-                source_location=f"Page {cand.page}" if cand.page else None,
-                report_id=report.id, patient_id=report.patient_id, owner_id=report.owner_id,
-            )
-            session.add(m)
-            session.flush()
-            cand.measurement_id = m.id
-            cand.review_status = "confirmed"
-            created += 1
-        elif cand.review_status == "pending":
-            cand.review_status = "rejected"
-        session.add(cand)
-    report.report_date = report_date.isoformat()
-    if report.status != COMPLETED:
-        report.status = CONFIRMED
+        c["detected"] += 1
+        if cand.measurement_id is None:
+            c["pending"] += 1
+    rows =session.exec(select(MedicalMeasurement.report_id).where(MedicalMeasurement.report_id.in_(report_ids))).all()
+    for rid in rows:
+        counts[rid]["confirmed"] += 1
+    return counts
+
+
+def processing_status(report: Report) -> str:
+    if report.status in (UPLOADED, PROCESSING):
+        return "processing"
+    if report.status == FAILED:
+        return "failed"
+    return "processed"
+
+
+def review_status(report: Report, counts: dict) -> Optional[str]:
+    """needs_review | partially_confirmed | confirmed (None while processing or after a failure)."""
+    if processing_status(report) != "processed":
+        return None
+    if counts["pending"] == 0 and date_is_confirmed(report):
+        return CONFIRMED
+    return PARTIALLY_CONFIRMED if counts["confirmed"] else NEEDS_REVIEW
+
+
+def refresh_status(session: Session, report: Report) -> dict:
+    """Recompute the stored lifecycle status from review progress. Returns the counts."""
+    session.flush()
+    counts = review_counts(session, [report.id])[report.id]
+    state = review_status(report, counts)
+    if state == NEEDS_REVIEW and counts["detected"] == 0 and counts["ignored"] == 0:
+        state = EXTRACTED                     # nothing to review except the report date
+    if state:
+        report.status = state
+        session.add(report)
+    return counts
+
+
+def confirm_date(session: Session, report: Report, report_date: date) -> None:
+    """User confirms the report date; records whether it matches a date found in the document."""
+    if processing_status(report) == "processing":
+        raise ReviewError("This report is still being processed.")
+    iso = report_date.isoformat()
+    extraction = get_extraction(session, report.id)
+    detected = set()
+    if extraction:
+        for cand in json.loads(extraction.date_candidates or "[]"):
+            detected.update([cand.get("value")] + list(cand.get("alternatives") or []))
+        report.detected_date = report.detected_date or extraction.document_date
+    report.date_source = "extracted" if iso in detected else "user_override"
+    report.date_confirmed = True
+    report.report_date = iso
+    for m in session.exec(select(MedicalMeasurement).where(MedicalMeasurement.report_id == report.id)):
+        m.report_date = report_date            # keep the timeline consistent with the confirmed date
+        session.add(m)
     session.add(report)
+
+
+def confirm_candidate(session: Session, report: Report, cand: ExtractedMeasurement) -> MedicalMeasurement:
+    if not date_is_confirmed(report):
+        raise ReviewError("Confirm the report date first.")
+    if cand.measurement_id is not None:
+        raise ReviewError("This value is already confirmed.")
+    if cand.review_status == "rejected":
+        raise ReviewError("This value is ignored. Restore it before confirming.")
+    if cand.value is None:
+        raise ValueError(f"A value is missing for {cand.test_name}")
+    m = MedicalMeasurement(
+        test_name=cand.test_name, value=cand.value, unit=cand.unit,
+        reference_range=cand.reference_range, flag=cand.flag,
+        report_date=date.fromisoformat(report.report_date[:10]),
+        hospital=report.hospital, laboratory=report.laboratory, department=report.department,
+        comments=("Edited during review" if cand.edited else "Confirmed during review"),
+        source_location=f"Page {cand.page}" if cand.page else None,
+        report_id=report.id, patient_id=report.patient_id, owner_id=report.owner_id,
+    )
+    session.add(m)
+    session.flush()
+    cand.measurement_id = m.id
+    cand.review_status = "confirmed"
+    session.add(cand)
+    return m
+
+
+def confirm(session: Session, report: Report, report_date: Optional[date],
+            candidate_ids: Optional[List[int]] = None) -> int:
+    """Confirm the report date (if given) and candidates. Returns the number of measurements created.
+
+    With ``candidate_ids``: confirm exactly those values; other values are left for later review.
+    Without (legacy "finish review"): confirm accepted values and ignore the ones still pending.
+    """
+    if report_date is not None:
+        confirm_date(session, report, report_date)
+    candidates = session.exec(select(ExtractedMeasurement).where(
+        ExtractedMeasurement.report_id == report.id).order_by(ExtractedMeasurement.id)).all()
+    created = 0
+    if candidate_ids is not None:
+        wanted = set(candidate_ids)
+        unknown = wanted - {c.id for c in candidates}
+        if unknown:
+            raise ReviewError("Some values do not belong to this report.")
+        for cand in candidates:
+            if cand.id in wanted and cand.measurement_id is None and cand.review_status != "rejected":
+                confirm_candidate(session, report, cand)
+                created += 1
+    else:
+        if not date_is_confirmed(report):
+            raise ReviewError("Confirm the report date first.")
+        for cand in candidates:
+            if cand.measurement_id is not None:
+                continue
+            if cand.review_status == "accepted":
+                confirm_candidate(session, report, cand)
+                created += 1
+            elif cand.review_status == "pending":
+                cand.review_status = "rejected"
+                session.add(cand)
+    refresh_status(session, report)
     return created
 
 

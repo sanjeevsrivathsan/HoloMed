@@ -4,6 +4,7 @@ import {
   Sparkles, ShieldCheck, ExternalLink, Upload, Loader2,
 } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
+import { ResizablePanels } from '@/components/ResizablePanels';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SafetyNotice } from '@/components/SafetyNotice';
@@ -15,10 +16,10 @@ import type { ImagingStudy } from '@/lib/types';
 
 /**
  * OHIF is served by the FastAPI backend at /ohif/.
- * In development, Vite proxy forwards /ohif/* to 127.0.0.1:8000, so /ohif/ works.
+ * In development, Vite proxy forwards /ohif/* to 127.0.0.1:8001, so /ohif/ works (OHIF routerBasename is "/ohif/").
  * In production, set VITE_OHIF_URL to the absolute URL if needed.
  */
-const OHIF_BASE = (import.meta.env.VITE_OHIF_URL as string | undefined) ?? '/ohif/';
+const OHIF_BASE = ((import.meta.env.VITE_OHIF_URL as string | undefined) ?? '/ohif/').replace(/\/?$/, '/');
 
 interface ImagingProps {
   studies: ImagingStudy[];
@@ -57,7 +58,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
   // When a study is selected, OHIF is opened with StudyInstanceUIDs query param.
   // The study ID is the StudyInstanceUID from the QIDO response.
   const ohifStudyUrl = selectedStudy
-    ? `${OHIF_BASE}?StudyInstanceUIDs=${encodeURIComponent(selectedStudy.id)}`
+    ? `${OHIF_BASE}viewer?StudyInstanceUIDs=${encodeURIComponent(selectedStudy.id)}`
     : OHIF_BASE;
 
   // ── DICOM upload ──────────────────────────────────────────────────────────
@@ -151,9 +152,13 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
     {mode === 'screening' && <ChestXrayScreening />}
 
     {mode === 'viewer' && (
-    <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-12 lg:min-h-0">
+    <ResizablePanels id="imaging-viewer" className="flex-1 lg:min-h-0" breakpoint={1024} panels={[
+      { label: 'study list', min: 220, size: 24, max: 45 },
+      { label: 'viewer', min: 420, size: 52 },
+      { label: 'radiology report', min: 220, size: 24, max: 45 },
+    ]}>
       {/* Left: Study List */}
-      <div className="lg:col-span-3 lg:overflow-y-auto">
+      <div className="h-full lg:overflow-y-auto">
         <Card className="lg:h-full flex flex-col">
           <CardHeader
             title="Imaging Studies"
@@ -235,7 +240,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
       </div>
 
       {/* Center: Imaging Viewport */}
-      <div className="lg:col-span-6 min-h-[560px]">
+      <div className="h-full min-h-[560px]">
         <Card className="lg:h-full flex flex-col">
           {!selectedStudy ? (
             <div className="flex flex-1 items-center justify-center p-8">
@@ -300,7 +305,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
       </div>
 
       {/* Right: Radiology Report / AI */}
-      <div className="lg:col-span-3 lg:overflow-y-auto">
+      <div className="h-full lg:overflow-y-auto">
         <Card className="lg:h-full flex flex-col">
           <CardHeader title="Radiology Report" icon={<FileText className="h-4.5 w-4.5" />} />
           <div className="flex-1 overflow-y-auto p-4">
@@ -344,7 +349,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
           </div>
         </Card>
       </div>
-      </div>
+    </ResizablePanels>
     )}
     </div>
   );

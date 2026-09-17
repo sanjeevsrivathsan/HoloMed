@@ -13,25 +13,34 @@ Upload (PDF / PNG / JPEG)
   → validate (content signature, size ≤ 50 MB, document type)
   → store original unchanged
   → extract text (PDF text layer; OCR for scanned pages and images)
-  → parse laboratory values (deterministic, no AI)
-  → human review (accept / edit / reject, confirm report date)
+  → parse laboratory values + date candidates (deterministic, no AI)
+  → human review: confirm the report date, then confirm / edit / ignore each value
   → canonical measurements (MedicalMeasurement, linked to the report)
   → optional AI summary (text AI provider, safety-checked)
   → Timeline · Search · Clinical View · Overview
 ```
 
-### Report status
+### Status model: processing vs review
 
-| Status | Meaning |
+A report has **two independent lifecycles**, and the UI shows both, e.g. "Processed · Needs review"
+or "Processed · 9 values confirmed".
+
+| Processing status | Meaning |
 |---|---|
-| `uploaded` | Original stored; processing about to start |
 | `processing` | Text extraction / parsing in progress (background task) |
-| `extracted` | Text extracted, no laboratory values recognised; ready for review |
-| `needs_review` | Values found; waiting for the user to accept/edit/reject them |
-| `confirmed` | Review confirmed; accepted values are canonical measurements |
-| `completed` | An AI summary has been generated from confirmed data |
+| `processed` | Every mandatory stage completed |
 | `failed` | Extraction failed (reason code shown); retry is available |
-| `ready` | Legacy status of reports created before this pipeline; shown as Completed |
+
+| Review status | Meaning |
+|---|---|
+| `needs_review` | Values were detected; none is confirmed yet |
+| `partially_confirmed` | Some values confirmed, others still awaiting review |
+| `confirmed` | Nothing is left to review (including reports with no values to review) |
+
+The stored `report.status` column keeps the combined value (`uploaded`, `processing`,
+`extracted`, `needs_review`, `partially_confirmed`, `confirmed`, `failed`; `ready` and
+`completed` are legacy values of reports created before this pipeline). Generating an AI summary
+never changes the review status.
 
 ### Processing stages
 
@@ -122,6 +131,15 @@ were created by startup rather than by Alembic must first be stamped with
   - missing units
   - values outside a loose plausibility window for the unit (this only lowers confidence; it
     never flags a result)
+- **Multi-line result blocks:** machine-generated reports often print a test as several lines —
+  name, `Method:`/`Sample:` lines, then value + unit + range ("HDL Cholesterol" / "Method:
+  Selective Inhibition Method" / "41.2 mg/dL Desirable > 40.0"). A second pass reads these blocks,
+  joins printed reference tiers verbatim ("Desirable > 40.0; Higher Risk < 40.0", truncated at 200
+  characters) and never turns a tier word into a flag. Labels split across lines are joined only
+  when the combination maps to a canonical name; page breaks reset the pending name.
+- **Qualifiers** decide mapping: "Blood Glucose (Fasting)" → Glucose (fasting), while
+  "Blood Glucose (2 Hr. PP)", "Urine Creatinine" and "Haemoglobin (HbA1c)" stay unmapped rather
+  than becoming the wrong canonical test.
 - **Dates:** a collection date is preferred over a report date. Ambiguous day/month dates
   (e.g. `03/04/2025`) are not guessed; the user enters the date during review.
 - **OCR spacing:** OCR often drops spaces ("FastingBloodGlucose", "SerumCreatinine",
@@ -131,32 +149,76 @@ were created by startup rather than by Alembic must first be stamped with
 
 ## 5. Review
 
-The Reports workspace shows each candidate with:
+Nothing enters the health record without the user. Review has two steps.
 
-- "Auto-extracted" or "Edited by you"
-- a confidence badge
-- the source page and line
-- the printed range and flag
+### 5.1 Report date
 
-The user can accept, reject, undo, edit (name, value, unit, printed range, printed flag) or
-accept all remaining values, then confirm with the report date. Values not accepted are not
-saved. Confirmed values cannot be edited through the review endpoint.
+The parser returns **date candidates** instead of silently accepting one. Each candidate keeps its
+printed label (Collected on, Registration Time, Reported on, Report Date), the text as printed, the
+parsed value and — when the day/month order is unclear — both readings.
+
+- Until the user confirms, the report shows a provisional date, `date_confirmed = false` and
+  "(date not confirmed)" in the UI. Provisional dates are **not** searchable.
+- `POST /api/v1/reports/{id}/date/confirm` stores the date and its provenance:
+  `date_source = extracted` when the chosen date is one of the detected readings, otherwise
+  `user_override`. The originally detected date is kept in `detected_date` and shown next to
+  an override.
+- No value can be confirmed before the date; the API answers 409 "Confirm the report date first."
+  and the Confirm buttons are disabled.
+
+### 5.2 Measurements
+
+Each detected value is shown as "Extracted · not confirmed" with its confidence, source page and
+line, and the printed range and flag. The user can:
+
+| Action | Effect |
+|---|---|
+| Confirm | `POST /api/v1/reports/{id}/candidates/{cid}/confirm` — the value becomes a canonical measurement immediately |
+| Edit | name, value, unit, printed range, printed flag; the row is marked "Edited by you" and stays unconfirmed |
+| Ignore | the value is never saved; it can be restored |
+| Confirm all remaining | confirms every candidate still awaiting review |
+
+Confirmed values cannot be edited through the review endpoint; ignored values are never saved,
+never searchable and never part of an AI summary. Changing the report date afterwards also updates
+the dates of the measurements confirmed from that report.
 
 ## 6. AI summary
 
 `backend/services/explanation/report_summary.py` uses the configured text AI provider
 (`TEXT_AI_PROVIDER`, default local Ollama).
 
-- **Input:**
-  - Lab reports: the model receives only the confirmed test names, values and units, never the
-    document text.
-  - Other documents with no confirmed values: the extracted text (first 6,000 characters).
-  - With `TEXT_AI_PROVIDER=omniroute` this text leaves the machine.
+- **Input:** one structured object (`SummaryInput`), never the raw PDF:
+  confirmed measurements (name, value, unit, printed range, printed flag, page), report metadata
+  (type, confirmed date and its provenance, laboratory, source filename), earlier confirmed values
+  of the same tests for trends, the number of values still pending or ignored, and the extraction
+  method/quality. The model itself receives only names, values, units, test groups and — for
+  flagged values — "marked X by the laboratory".
+  - Documents with no detected values (e.g. a clinical note): the extracted text
+    (first 6,000 characters) is used instead.
+  - A report with detected but unconfirmed values is refused with HTTP 409: confirm values first.
+  - With `TEXT_AI_PROVIDER=omniroute` this content leaves the machine.
 - **Deterministic sections:** "Confirmed results", "Results flagged in the report" and "Results
   marked normal" are written by the backend from confirmed data. Only printed flags appear, and
   unflagged values are explicitly not judged.
-- **Model sections:** the model writes only the overview, general explanations of the tests,
-  and neutral questions for a clinician.
+- **Model sections:** the model writes only the overview ("Summary"), general explanations of the
+  tests ("What these tests measure") and neutral questions for a clinician. Every section is
+  labelled in the UI as AI-generated or "From confirmed report data" (`section.source`).
+- **Sections:** report overview, summary, confirmed results, results flagged in the report,
+  results marked normal, what these tests measure, changes since earlier confirmed results,
+  questions to ask your clinician, extraction notes, data limitations, source and provenance.
+- **Modes** select sections and detail; they produce genuinely different output:
+
+  | Mode | Sections | Language model |
+  |---|---|---|
+  | Quick | summary, confirmed results (compact), flagged results | yes |
+  | Standard | overview, summary, results, flagged, test explanations, trends, questions, limitations | yes |
+  | Detailed | Standard + results marked normal + page references + extraction notes | yes |
+  | Clinical | overview, results (one line per test with range, flag, date, page), flagged, trends, provenance, limitations | **no** |
+  | Custom | all sections; the user picks | yes |
+
+  Clinical mode is fully deterministic, so it also works when no text AI is available
+  (`generator: "structured-data"` instead of `"language-model"`).
+- **Trends** compare a confirmed value only with earlier **confirmed** values of the same test.
 - **Validation:** output is rejected, with one retry and then HTTP 502, if it contains:
   - condition or diagnosis language
   - treatment, medication or lifestyle advice
@@ -165,7 +227,9 @@ saved. Confirmed values cannot be edited through the review endpoint.
   - numbers not present in the source
 - **Safety notice:** the backend attaches "AI-generated information — not a diagnosis. Consult a
   qualified healthcare professional." to every summary, and the UI always shows it.
-- **Provider unavailable:** HTTP 503 with a friendly message; nothing is saved.
+- **Provider unavailable:** HTTP 503 with a friendly message; nothing is saved. The UI shows
+  "AI summary unavailable" and states that report processing is unaffected. Generation is never
+  part of upload: the panel shows "Generating summary…" and there are no automatic retries.
 
 ## 7. Search, timeline, clinical view, overview
 
@@ -176,12 +240,19 @@ saved. Confirmed values cannot be edited through the review endpoint.
   - printed flags ("flagged", "abnormal", "high", "low"; "low-density" is not a flag)
   - document types
 
+  Plain queries also match a confirmed value ("13.2"), a unit, a laboratory, a report title/type
+  and a **confirmed** report date ("2026-09-14", "14 Sep 2026"); a report matches when one of its
+  confirmed values matches. Unconfirmed candidates and provisional dates are never returned.
+
   Every measurement row links to its source report.
 - **Health Timeline:** charts confirmed measurements per canonical test, draws only printed
   range limits, warns about mixed units, and links each record to its report.
-- **Clinical View:** shows confirmed values with the previous confirmed value. The trend arrow
-  shows direction only, with no good/bad colouring. It also shows the summary with its safety
-  notice and the source-document artifacts.
+- **Clinical View:** sections in a fixed order — header, processing/review status, structured
+  measurements (test, value, unit, printed reference range, report flag, date, source page and
+  change since the previous confirmed value), AI explanation, source clinical data, imaging
+  studies, provenance. The trend arrow shows direction only, with no good/bad colouring. Without
+  confirmed values it shows: "No confirmed measurements yet. Review the extracted values in
+  Reports and confirm them before they appear here."
 - **Overview:** shows real counts (reports, imaging studies, AI report summaries), items that are
   processing, awaiting review or failed, recent reports, and confirmed HbA1c values.
 
@@ -205,8 +276,10 @@ REAL PATIENT DATA", with source "HoloMed demo (synthetic)".
 | `GET /api/v1/reports/{id}` · `/download` · `DELETE` | Metadata · original file · delete (with derived data) |
 | `GET /api/v1/reports/{id}/extraction` | Processing `stage` and `stages`, extracted text, method, quality, warnings, timings, candidates |
 | `POST /api/v1/reports/{id}/extraction/retry` | Re-run extraction (not after confirmation) |
-| `PATCH /api/v1/reports/{id}/candidates/{cid}` | Edit / accept / reject / undo a candidate |
-| `POST /api/v1/reports/{id}/review/confirm` | `{report_date}` → canonical measurements |
+| `PATCH /api/v1/reports/{id}/candidates/{cid}` | Edit / accept / ignore / restore a candidate |
+| `POST /api/v1/reports/{id}/date/confirm` | `{report_date}` → confirmed date + provenance |
+| `POST /api/v1/reports/{id}/candidates/{cid}/confirm` | Confirm one value (requires a confirmed date) |
+| `POST /api/v1/reports/{id}/review/confirm` | `{report_date?, candidate_ids?}` → canonical measurements |
 | `GET/POST /api/v1/reports/{id}/summary` | Read / generate (form field `mode`) |
 | `POST /api/v1/search` | Structured search (`report_ids`, `measurement_ids`, `interpretation`) |
 | `GET /api/v1/ai/status` | Text AI provider, model and state (no URLs or keys) |

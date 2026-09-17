@@ -15,6 +15,7 @@ import {
   Sparkles, Stethoscope, Timer, Upload, X,
 } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
+import { ResizablePanels } from '@/components/ResizablePanels';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SafetyNotice } from '@/components/SafetyNotice';
@@ -214,9 +215,12 @@ export function ChestXrayScreening() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+      <ResizablePanels id="cxr-screening" breakpoint={1280} panels={[
+        { label: 'X-ray viewer', min: 420, size: 58, max: 75 },
+        { label: 'findings', min: 360, size: 42, max: 60 },
+      ]}>
         {/* ── Viewer ─────────────────────────────────────────────────────── */}
-        <Card className="xl:col-span-7 flex flex-col overflow-hidden self-start xl:sticky xl:top-4">
+        <Card className="flex flex-col overflow-hidden xl:sticky xl:top-4">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
             <div className="flex items-center gap-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-50 text-teal-600 dark:bg-teal-950 dark:text-teal-400">
@@ -347,7 +351,7 @@ export function ChestXrayScreening() {
         </Card>
 
         {/* ── Controls & results ─────────────────────────────────────────── */}
-        <div className="xl:col-span-5 space-y-4">
+        <div className="space-y-4">
           <Card>
             <CardHeader
               title="Chest X-Ray AI Screening"
@@ -584,7 +588,7 @@ export function ChestXrayScreening() {
             </div>
           )}
         </div>
-      </div>
+      </ResizablePanels>
 
       {/* ── Safety & human review (always visible) ───────────────────────── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

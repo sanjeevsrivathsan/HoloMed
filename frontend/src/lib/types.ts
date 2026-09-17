@@ -3,16 +3,24 @@ export type Role = 'patient' | 'clinician' | 'administrator';
 export type AppTheme = 'system' | 'light' | 'dark';
 export type ImagingTheme = 'follow' | 'dark' | 'light';
 
-/** Report lifecycle (backend). 'ready' is the legacy name for completed. */
+/** Stored report lifecycle (backend). 'ready' and 'completed' are legacy values. */
 export type ReportStatus =
   | 'uploaded'
   | 'processing'
   | 'extracted'
   | 'needs_review'
+  | 'partially_confirmed'
   | 'confirmed'
   | 'completed'
   | 'failed'
   | 'ready';
+
+/** Document processing, independent of review. */
+export type ProcessingStatus = 'processing' | 'processed' | 'failed';
+/** User review of the report date and extracted values. */
+export type ReviewStatus = 'needs_review' | 'partially_confirmed' | 'confirmed';
+/** Where the report date came from. */
+export type DateSource = 'upload_default' | 'user_entered' | 'extracted' | 'user_override';
 export type ReportType =
   | 'Blood Test'
   | 'Imaging Report'
@@ -82,6 +90,8 @@ export interface ReportSummarySection {
   label: string;
   content: string;
   visible: boolean;
+  /** "ai" = written by the language model; "data" = copied from confirmed report data. */
+  source?: 'ai' | 'data';
 }
 
 export interface ReportSummary {
@@ -92,6 +102,8 @@ export interface ReportSummary {
   createdAt: string;
   /** Mandatory notice returned by the backend with every AI summary. */
   safetyMessage?: string;
+  /** "language-model" or "structured-data" (no model used). */
+  generator?: string | null;
 }
 
 export interface Report {
@@ -117,6 +129,14 @@ export interface Report {
   candidateCount?: number;
   /** Confirmed canonical measurements linked to this report. */
   measurementCount?: number;
+  processingStatus?: ProcessingStatus;
+  reviewStatus?: ReviewStatus | null;
+  dateConfirmed?: boolean;
+  dateSource?: DateSource | null;
+  /** Date suggested from the document (ISO), kept after a user override. */
+  detectedDate?: string | null;
+  pendingCount?: number;
+  ignoredCount?: number;
 }
 
 export interface ImagingStudy {

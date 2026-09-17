@@ -16,6 +16,7 @@ from ..database import get_session
 from ..dependencies.auth import get_current_user
 from ..models import MedicalMeasurement, Report, SourceReference, User
 from ..services import lab_parser
+from ..services.report_pipeline import date_is_confirmed
 
 router = APIRouter(prefix="/api/v1/search", tags=["Search"])
 
@@ -104,6 +105,9 @@ def interpret(query: str, today: Optional[date] = None) -> SearchInterpretation:
 
 
 def _report_day(report: Report) -> Optional[date]:
+    """The report date, only once the user has confirmed it (provisional dates are not searchable)."""
+    if not date_is_confirmed(report):
+        return None
     try:
         return datetime.fromisoformat(report.report_date[:10]).date()
     except (TypeError, ValueError):
@@ -118,6 +122,31 @@ def _in_window(day: Optional[date], spec: SearchInterpretation) -> bool:
     return (spec.since is None or day >= spec.since) and (spec.until is None or day <= spec.until)
 
 
+def _keyword_matcher(query: str):
+    """Plain query: a number matches confirmed values, a date matches report dates, text matches
+    test names, units and laboratories."""
+    lowered = query.lower()
+    number = None
+    if re.fullmatch(r"\d+(?:[.,]\d+)?", query):
+        number = float(query.replace(",", "."))
+    day, _ambiguous = lab_parser.parse_date(query) if re.search(r"\d{4}", query) else (None, False)
+
+    def measurement(m: MedicalMeasurement) -> bool:
+        if number is not None:
+            return abs(m.value - number) < 1e-9
+        if day is not None:
+            return m.report_date == day
+        return bool(lowered) and lowered in f"{m.test_name} {m.unit} {m.hospital or ''} {m.laboratory or ''}".lower()
+
+    def report(r: Report) -> bool:
+        if day is not None:
+            return _report_day(r) == day
+        text = f"{r.title} {r.type} {r.hospital or ''} {r.laboratory or ''} {r.department or ''}".lower()
+        return bool(lowered) and number is None and lowered in text
+
+    return measurement, report
+
+
 @router.post("", response_model=SearchResponse)
 def perform_search(
     request: SearchRequest,
@@ -126,8 +155,8 @@ def perform_search(
 ):
     query = request.query.strip()
     spec = interpret(query)
-    lowered = query.lower()
     structured = bool(spec.tests or spec.flags or spec.since or spec.report_types)
+    keyword_measurement, keyword_report = _keyword_matcher(query)
 
     measurements = session.exec(select(MedicalMeasurement).where(MedicalMeasurement.owner_id == user.id)
                                 .order_by(MedicalMeasurement.report_date)).all()
@@ -142,7 +171,7 @@ def perform_search(
                 continue
             if not (spec.tests or spec.flags):
                 continue   # a time window or document type alone selects reports, not every value
-        elif not lowered or lowered not in f"{m.test_name} {m.hospital or ''} {m.laboratory or ''}".lower():
+        elif not keyword_measurement(m):
             continue
         matched_measurements.append(m)
 
@@ -160,7 +189,7 @@ def perform_search(
                 hit = True
             if hit and by_type and _in_window(_report_day(r), spec):
                 matched_reports.append(r.id)
-        elif lowered and lowered in text:
+        elif keyword_report(r) or r.id in with_matches:
             matched_reports.append(r.id)
 
     return SearchResponse(report_ids=matched_reports, measurement_ids=[m.id for m in matched_measurements],

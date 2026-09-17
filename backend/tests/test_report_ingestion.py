@@ -282,7 +282,8 @@ def test_review_edit_reject_confirm_creates_canonical_measurements(client):
 
     resp = client.post(f"/api/v1/reports/{rid}/review/confirm", json={"report_date": "2026-03-14"})
     assert resp.status_code == 200
-    assert resp.json() == {"report_id": rid, "status": "confirmed", "measurements_created": 4}
+    assert resp.json() == {"report_id": rid, "status": "confirmed", "review_status": "confirmed",
+                           "measurements_created": 4}
 
     meas = client.get("/api/v1/measurements").json()
     assert sorted(m["test_name"] for m in meas) == ["Blood Pressure (systolic)", "HbA1c", "Hemoglobin", "LDL"]
@@ -368,7 +369,10 @@ def test_summary_uses_confirmed_values_and_marks_completion(client, monkeypatch)
     assert body["safety_message"] == ("AI-generated information — not a diagnosis. "
                                       "Consult a qualified healthcare professional.")
     sections = {s["key"]: s["content"] for s in json.loads(body["sections"])}
-    assert list(sections) == ["executive", "findings", "abnormal", "terms", "questions"]
+    assert list(sections) == ["overview", "executive", "findings", "abnormal", "terms", "questions", "limitations"]
+    assert all(s["source"] == ("ai" if s["key"] in ("executive", "terms", "questions") else "data")
+               for s in json.loads(body["sections"]))
+    assert "3 confirmed result(s)" in sections["overview"]
     assert sections["executive"] == SAFE["overview"]
     # flagged section is built from printed flags only
     assert "HbA1c: 7.9 %" in sections["abnormal"] and "LDL: 162 mg/dL" in sections["abnormal"]
@@ -376,8 +380,11 @@ def test_summary_uses_confirmed_values_and_marks_completion(client, monkeypatch)
     # the model only sees confirmed values, never the raw document
     prompt = provider.prompts[0]
     assert "HbA1c" in prompt and "Hemoglobin" not in prompt and "document_text" not in prompt
-    assert "reference" not in prompt and "high" not in prompt
-    assert client.get(f"/api/v1/reports/{rid}").json()["status"] == "completed"
+    assert "4.0 - 5.6" not in prompt and "<100" not in prompt            # printed ranges are not sent
+    assert prompt.count('"report_flag": "marked high by the laboratory"') == 2  # HbA1c and LDL only
+    report = client.get(f"/api/v1/reports/{rid}").json()
+    # a summary does not change the review state ("completed" is no longer used)
+    assert (report["status"], report["processing_status"], report["review_status"]) ==         ("confirmed", "processed", "confirmed")
     assert client.get(f"/api/v1/reports/{rid}/summary").json()["safety_message"].startswith("AI-generated")
     assert client.get("/api/v1/reports").json()[0]["summary"]["mode"] == "standard"
 
@@ -441,7 +448,8 @@ def test_non_lab_summary_uses_extracted_text(client, monkeypatch):
     monkeypatch.setattr(report_summary, "get_text_ai_provider", lambda: provider)
     resp = client.post(f"/api/v1/reports/{rid}/summary", data={"mode": "detailed"})
     assert resp.status_code == 200
-    assert [s["key"] for s in json.loads(resp.json()["sections"])] == ["executive", "terms", "questions"]
+    assert [s["key"] for s in json.loads(resp.json()["sections"])] == [
+        "overview", "executive", "terms", "questions", "limitations"]
     assert "routine visit" in provider.prompts[0]
 
 

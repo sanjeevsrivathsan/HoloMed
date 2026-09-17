@@ -104,9 +104,26 @@ from backend.services.auth_service import create_access_token
 
 
 
-# Serve OHIF static build at /ohif
+# Serve OHIF static build at /ohif (config: routerBasename "/ohif/" in frontend/ohif/app-config.js)
 from fastapi.staticfiles import StaticFiles
-app.mount("/ohif", StaticFiles(directory="frontend/ohif", html=True), name="ohif")
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+
+class SPAStaticFiles(StaticFiles):
+    """Static files with a single-page-app fallback: client-side routes such as
+    /ohif/viewer?StudyInstanceUIDs=… (deep links, browser refresh) get index.html.
+    Paths that look like files (have an extension) still return 404 when missing."""
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404 or "." in os.path.basename(path):
+                raise
+            return await super().get_response("index.html", scope)
+
+
+app.mount("/ohif", SPAStaticFiles(directory="frontend/ohif", html=True), name="ohif")
 @app.get("/", tags=["Root"])
 async def root():
     return {

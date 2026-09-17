@@ -29,7 +29,8 @@ class ReportExtraction(SQLModel, table=True):
     page_count: int = 0
     char_count: int = 0
     text: str = ""                       # derived, normalized text (never overwrites the original)
-    document_date: Optional[str] = None  # collection/report date found in the document (ISO)
+    document_date: Optional[str] = None  # suggested report date found in the document (ISO)
+    date_candidates: str = "[]"          # JSON list of labelled dates found in the document
     error_code: Optional[str] = None     # short machine code, no document content
     warnings: str = "[]"                 # JSON list of short strings
     timings: str = "{}"                  # JSON {phase: ms}
@@ -75,6 +76,14 @@ class ExtractedMeasurementRead(SQLModel):
     measurement_id: Optional[int] = None
 
 
+class DateCandidateRead(SQLModel):
+    kind: str                  # collected | received | registered | reported | report_date
+    label: str                 # label as printed, e.g. "Collected on"
+    text: str                  # date as printed
+    value: Optional[str] = None            # ISO date when unambiguous
+    alternatives: List[str] = []           # both readings when day/month order is unknown
+
+
 class ProcessingStage(SQLModel):
     key: str
     label: str
@@ -93,6 +102,7 @@ class ReportExtractionRead(SQLModel):
     char_count: int
     text: str
     document_date: Optional[str] = None
+    date_candidates: List[DateCandidateRead] = []
     error_code: Optional[str] = None
     warnings: List[str] = []
     timings: dict = {}

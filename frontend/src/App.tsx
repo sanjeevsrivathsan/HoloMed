@@ -36,8 +36,13 @@ import { Settings } from '@/pages/Settings';
 import { api, ApiError, type StudyMeta, type PatientResponse } from '@/lib/api';
 import type { ImagingStudy, Template, Report, ReportStatus, AuditEvent, MedicalMeasurement, ConsentRecord, StorageConnection, SourceReference } from '@/lib/types';
 import { isProcessing, summaryFromBackend } from '@/lib/reports';
+import { formatRoute, parseRoute, sameRoute, type AppRoute } from '@/lib/routing';
 
 const POLL_INTERVAL_MS = 1500;
+
+interface TemplateRow { id: number; name: string; category: string; description: string; sections: string | Template['sections']; updated_at: string }
+interface ConsentRow { id: number; patient_id: number; recipient: string; purpose: string; scope: string; issued_date: string; expiry_date: string; revoked: boolean }
+interface StorageRow { provider: string; label: string; status: string; is_primary?: boolean; description: string }
 
 /** Backend timestamps are naive UTC. */
 const utc = (value: string | null | undefined) =>
@@ -68,6 +73,13 @@ function reportFromBackend(r: any): Report {
     extractionStatus: r.extraction_status ?? null,
     candidateCount: r.candidate_count ?? 0,
     measurementCount: r.measurement_count ?? 0,
+    processingStatus: r.processing_status,
+    reviewStatus: r.review_status ?? null,
+    dateConfirmed: r.date_confirmed,
+    dateSource: r.date_source ?? null,
+    detectedDate: r.detected_date ?? null,
+    pendingCount: r.pending_count ?? 0,
+    ignoredCount: r.ignored_count ?? 0,
   };
 }
 
@@ -137,15 +149,19 @@ function Workspace() {
   const { isAuthenticated, loading: authLoading, user } = useAuth();
 
   // ── Page navigation ──────────────────────────────────────────────────────
-  const [currentPage, setCurrentPage] = useState<PageKey>('imaging');
+  // Workspace route is mirrored in the URL (History API): Back/Forward, refresh and deep links work.
+  const [initialRoute] = useState<AppRoute>(() => parseRoute(window.location.pathname));
+  const [currentPage, setCurrentPage] = useState<PageKey>(initialRoute.page);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // ── Reports (now from backend) ─────────────────────────────────────────
   const [reports, setReports] = useState<Report[]>([]);
-  const [reportsLoading, setReportsLoading] = useState(false);
-  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
-  const [clinicalReportId, setClinicalReportId] = useState<string | null>(null);
+  const [, setReportsLoading] = useState(false);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(
+    initialRoute.page === 'reports' ? initialRoute.reportId : null);
+  const [clinicalReportId, setClinicalReportId] = useState<string | null>(
+    initialRoute.page === 'clinical' ? initialRoute.reportId : null);
 
   // ── Audit Logs (from backend) ──────────────────────────────────────────
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -187,6 +203,9 @@ function Workspace() {
       setReports(mappedReports);
       if (!selectedReportId && mappedReports.length > 0) {
         setSelectedReportId(mappedReports[0].id);
+        if (parseRoute(window.location.pathname).page === 'reports') {
+          window.history.replaceState({ holomed: true }, '', formatRoute({ page: 'reports', reportId: mappedReports[0].id }));
+        }
       }
 
       // Fetch patients to get display name
@@ -204,11 +223,11 @@ function Workspace() {
       setMeasurements(measData.map(measurementFromBackend));
 
       // Fetch templates
-      const tmplData = await api.get<any[]>('/api/v1/templates');
+      const tmplData = await api.get<TemplateRow[]>('/api/v1/templates');
       const mappedTmpls: Template[] = tmplData.map(t => ({
         id: String(t.id),
         name: t.name,
-        category: t.category as any,
+        category: t.category as Template['category'],
         description: t.description,
         sections: typeof t.sections === 'string' ? JSON.parse(t.sections) : t.sections,
         updatedAt: t.updated_at
@@ -216,13 +235,13 @@ function Workspace() {
       setTemplates(mappedTmpls);
 
       // Fetch Consents
-      const consData = await api.get<any[]>('/api/v1/consents');
+      const consData = await api.get<ConsentRow[]>('/api/v1/consents');
       const mappedCons: ConsentRecord[] = consData.map(c => ({
         id: String(c.id),
         patientId: String(c.patient_id),
         recipient: c.recipient,
         purpose: c.purpose,
-        scope: c.scope as any,
+        scope: c.scope as ConsentRecord['scope'],
         issuedDate: c.issued_date,
         expiryDate: c.expiry_date,
         revoked: c.revoked
@@ -230,11 +249,11 @@ function Workspace() {
       setConsents(mappedCons);
 
       // Fetch Storage Connections
-      const storageData = await api.get<any[]>('/api/v1/storage-connections');
+      const storageData = await api.get<StorageRow[]>('/api/v1/storage-connections');
       const mappedStorage: StorageConnection[] = storageData.map(s => ({
-        provider: s.provider as any,
+        provider: s.provider as StorageConnection['provider'],
         label: s.label,
-        status: s.status as any,
+        status: s.status as StorageConnection['status'],
         isPrimary: s.is_primary,
         description: s.description
       }));
@@ -303,21 +322,57 @@ function Workspace() {
     return () => window.clearInterval(timer);
   }, [isAuthenticated, anyProcessing, refreshReports]);
 
-  // ── Navigation handlers ──────────────────────────────────────────────────
-  const handleNavigate = useCallback((page: PageKey) => {
-    setCurrentPage(page);
-    setMobileSidebarOpen(false);
+  // ── Navigation (History API) ─────────────────────────────────────────────
+  const applyRoute = useCallback((route: AppRoute) => {
+    setCurrentPage(route.page);
+    if (route.page === 'reports' && route.reportId) setSelectedReportId(route.reportId);
+    if (route.page === 'clinical') setClinicalReportId(route.reportId);
   }, []);
+
+  const navigate = useCallback((route: AppRoute, options: { replace?: boolean } = {}) => {
+    const current = parseRoute(window.location.pathname);
+    const url = formatRoute(route);
+    if (options.replace || sameRoute(current, route)) {
+      window.history.replaceState({ holomed: true }, '', url + window.location.hash);
+    } else {
+      window.history.pushState({ holomed: true }, '', url);
+    }
+    applyRoute(route);
+    setMobileSidebarOpen(false);
+  }, [applyRoute]);
+
+  // Normalise the entry URL once (e.g. "/" → "/imaging") without adding history.
+  useEffect(() => {
+    const url = formatRoute(initialRoute);
+    if (window.location.pathname !== url) {
+      window.history.replaceState({ holomed: true }, '', url + window.location.search + window.location.hash);
+    }
+  }, [initialRoute]);
+
+  useEffect(() => {
+    const onPopState = () => applyRoute(parseRoute(window.location.pathname));
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [applyRoute]);
+
+  const handleNavigate = useCallback((page: PageKey) => {
+    navigate({
+      page,
+      reportId: page === 'reports' ? selectedReportId : page === 'clinical' ? clinicalReportId : null,
+    });
+  }, [navigate, selectedReportId, clinicalReportId]);
 
   const handleOpenReport = useCallback((reportId: string) => {
-    setSelectedReportId(reportId);
-    setCurrentPage('reports');
-  }, []);
+    navigate({ page: 'reports', reportId });
+  }, [navigate]);
 
   const handleNavigateClinical = useCallback((reportId: string) => {
-    setClinicalReportId(reportId);
-    setCurrentPage('clinical');
-  }, []);
+    navigate({ page: 'clinical', reportId });
+  }, [navigate]);
+
+  const handleSelectReport = useCallback((reportId: string) => {
+    navigate({ page: 'reports', reportId });
+  }, [navigate]);
 
   // ── Template save (calls API) ─────────────────────────
   const handleSaveTemplate = useCallback(async (template: Template) => {
@@ -332,10 +387,10 @@ function Workspace() {
       let savedTemplate;
       // If template ID doesn't look like a real DB ID (e.g. 'new-123' or missing), POST it
       if (!template.id || template.id.startsWith('new') || template.id.startsWith('tpl_')) {
-        const res = await api.post<any>('/api/v1/templates', payload);
+        const res = await api.post<TemplateRow>('/api/v1/templates', payload);
         savedTemplate = { ...template, id: String(res.id), updatedAt: res.updated_at };
       } else {
-        const res = await api.put<any>(`/api/v1/templates/${template.id}`, payload);
+        const res = await api.put<TemplateRow>(`/api/v1/templates/${template.id}`, payload);
         savedTemplate = { ...template, id: String(res.id), updatedAt: res.updated_at };
       }
 
@@ -424,7 +479,7 @@ function Workspace() {
               reports={reports}
               measurements={measurements}
               selectedReportId={selectedReportId}
-              onSelectReport={setSelectedReportId}
+              onSelectReport={handleSelectReport}
               onRefresh={refreshReports}
               onNavigateClinical={handleNavigateClinical}
               onNavigateTimeline={() => handleNavigate('timeline')}

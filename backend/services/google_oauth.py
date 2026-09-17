@@ -84,12 +84,16 @@ def _with_query(url: str, **params: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
-def error_redirect_url(code: str) -> str:
-    return _with_query(config.GOOGLE_POST_LOGIN_URL, auth_error=code)
+def error_redirect_url(code: str, popup: bool = False) -> str:
+    extra = {"auth_popup": "1"} if popup else {}
+    return _with_query(config.GOOGLE_POST_LOGIN_URL, **extra, auth_error=code)
 
 
-def success_redirect_url(notice: Optional[str] = None) -> str:
-    return _with_query(config.GOOGLE_POST_LOGIN_URL, auth_notice=notice) if notice else config.GOOGLE_POST_LOGIN_URL
+def success_redirect_url(notice: Optional[str] = None, popup: bool = False) -> str:
+    params = {"auth_popup": "1"} if popup else {}
+    if notice:
+        params["auth_notice"] = notice
+    return _with_query(config.GOOGLE_POST_LOGIN_URL, **params) if params else config.GOOGLE_POST_LOGIN_URL
 
 
 # ── access-log redaction ─────────────────────────────────────────────────────

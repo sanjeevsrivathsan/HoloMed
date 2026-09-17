@@ -24,7 +24,8 @@ import {
 } from 'react';
 import type { UserProfile, Role } from '@/lib/types';
 import { api, ApiError, type MeResponse } from '@/lib/api';
-import { consumeAuthRedirectMessage, type AuthRedirectMessage } from '@/lib/authMessages';
+import { authMessageFor, consumeAuthRedirectMessage, type AuthRedirectMessage } from '@/lib/authMessages';
+import { onGoogleAuthResult, startGoogleAuth } from '@/lib/googleAuthPopup';
 import { useToast } from '@/context/ToastContext';
 
 interface AuthContextValue {
@@ -117,14 +118,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await api.postEmpty(`/api/v1/auth/register?${params.toString()}`);
   }, []);
 
-  // ── Google sign-in ────────────────────────────────────────────────────────
+  // ── Google sign-in (popup; full-page redirect if the popup is blocked) ────
   const signInWithGoogle = useCallback(() => {
-    window.location.href = '/api/v1/auth/google';
+    startGoogleAuth('/api/v1/auth/google');
   }, []);
 
   const linkGoogle = useCallback(() => {
-    window.location.href = '/api/v1/auth/google/link';
+    startGoogleAuth('/api/v1/auth/google/link');
   }, []);
+
+  // The popup only signals completion; the session is re-checked with the server.
+  useEffect(() => onGoogleAuthResult(async ({ error, notice }) => {
+    const message = authMessageFor(error, notice);
+    if (message) setAuthMessage(message);
+    try {
+      const me = await api.get<MeResponse>('/api/v1/auth/me');
+      setUser(toProfile(me, role));
+    } catch (err) {
+      if (!(err instanceof ApiError) || err.status !== 401) {
+        console.warn('[AuthContext] Session check after Google sign-in failed:', err);
+      }
+    }
+  }), [role]);
 
   // ── Sign out ──────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {

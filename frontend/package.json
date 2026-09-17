@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test": "node --test src/lib/processingStages.test.ts"
+    "test": "node --test src/lib/processingStages.test.ts src/lib/ranges.test.ts src/lib/reportDates.test.ts src/lib/routing.test.ts src/lib/panelSizes.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

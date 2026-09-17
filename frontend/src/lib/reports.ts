@@ -4,8 +4,9 @@
  * Uses the same-origin session cookie; no tokens are handled here.
  */
 import { api, ApiError } from '@/lib/api';
-import type { MeasurementFlag, ReportStatus, ReportSummary, SummaryMode } from '@/lib/types';
+import type { MeasurementFlag, Report, ReportStatus, ReportSummary, ReviewStatus as ReportReviewStatus, SummaryMode } from '@/lib/types';
 import type { ProcessingStage, TextAiState } from '@/lib/processingStages';
+import { dateKindLabels, type DetectedDate } from '@/lib/reportDates';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 
@@ -50,26 +51,82 @@ export interface ReportExtraction {
   char_count: number;
   text: string;
   document_date: string | null;
+  date_candidates: DateCandidate[];
   error_code: string | null;
   warnings: string[];
   timings: Record<string, number>;
   candidates: ExtractedCandidate[];
 }
 
+export type DateCandidate = DetectedDate;
+
 export type CandidateUpdate = Partial<Pick<ExtractedCandidate, 'test_name' | 'value' | 'unit' | 'reference_range' | 'flag'>> & {
   review_status?: Exclude<ReviewStatus, 'confirmed'>;
 };
 
 export const reportStatusLabels: Record<ReportStatus, string> = {
-  uploaded: 'Uploaded',
+  uploaded: 'Processing',
   processing: 'Processing',
-  extracted: 'Ready for review',
+  extracted: 'Needs review',
   needs_review: 'Needs review',
+  partially_confirmed: 'Partially confirmed',
   confirmed: 'Confirmed',
-  completed: 'Completed',
-  failed: 'Failed',
-  ready: 'Completed',
+  completed: 'Confirmed',
+  failed: 'Processing failed',
+  ready: 'Confirmed',
 };
+
+export const reviewStatusLabels: Record<ReportReviewStatus, string> = {
+  needs_review: 'Needs review',
+  partially_confirmed: 'Partially confirmed',
+  confirmed: 'Confirmed',
+};
+
+/** Two-part status: processing state · review state, e.g. "Processed · 9 values confirmed". */
+export function reportStatusText(report: Report): string {
+  const processing = report.processingStatus ?? (isProcessing(report.status) ? 'processing'
+    : report.status === 'failed' ? 'failed' : 'processed');
+  if (processing === 'processing') return 'Processing';
+  if (processing === 'failed') return 'Processing failed';
+  const confirmed = report.measurementCount ?? 0;
+  const review = report.reviewStatus;
+  if (review === 'confirmed') {
+    return confirmed > 0 ? `Processed · ${confirmed} value${confirmed === 1 ? '' : 's'} confirmed` : 'Processed · Reviewed';
+  }
+  if (review === 'partially_confirmed') return `Processed · ${confirmed} confirmed · ${report.pendingCount ?? 0} to review`;
+  return 'Processed · Needs review';
+}
+
+export function reportStatusShort(report: Report): string {
+  const processing = report.processingStatus;
+  if (processing === 'processing') return 'Processing';
+  if (processing === 'failed') return 'Failed';
+  return report.reviewStatus ? reviewStatusLabels[report.reviewStatus] : reportStatusLabels[report.status];
+}
+
+export function reportVariant(report: Report): 'success' | 'warning' | 'error' | 'info' | 'processing' {
+  if (report.processingStatus === 'processing') return 'processing';
+  if (report.processingStatus === 'failed') return 'error';
+  if (report.reviewStatus === 'confirmed') return 'success';
+  if (report.reviewStatus === 'partially_confirmed') return 'info';
+  if (report.reviewStatus === 'needs_review') return 'warning';
+  return statusVariant(report.status);
+}
+
+export const dateSourceLabels: Record<string, string> = {
+  extracted: 'Detected from the report and confirmed by you',
+  user_override: 'Entered by you (differs from the detected date)',
+  user_entered: 'Entered at upload',
+  upload_default: 'Upload date (no date confirmed yet)',
+};
+
+export { dateKindLabels };
+
+export function formatDay(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
 export const extractionMethodLabels: Record<ReportExtraction['method'], string> = {
   pdf_text: 'PDF text layer',
@@ -91,12 +148,12 @@ export function isProcessing(status: ReportStatus): boolean {
 }
 
 export function isReviewable(status: ReportStatus): boolean {
-  return status === 'extracted' || status === 'needs_review';
+  return status === 'extracted' || status === 'needs_review' || status === 'partially_confirmed';
 }
 
 export function statusVariant(status: ReportStatus): 'success' | 'warning' | 'error' | 'info' | 'processing' {
-  if (status === 'completed' || status === 'ready') return 'success';
-  if (status === 'confirmed') return 'info';
+  if (status === 'completed' || status === 'ready' || status === 'confirmed') return 'success';
+  if (status === 'partially_confirmed') return 'info';
   if (status === 'failed') return 'error';
   if (status === 'needs_review' || status === 'extracted') return 'warning';
   return 'processing';
@@ -165,9 +222,13 @@ export const reportsApi = {
   retry: (id: string) => api.postEmpty<unknown>(`/api/v1/reports/${id}/extraction/retry`),
   updateCandidate: (id: string, candidateId: number, body: CandidateUpdate) =>
     api.patch<ExtractedCandidate>(`/api/v1/reports/${id}/candidates/${candidateId}`, body),
-  confirm: (id: string, reportDate: string) =>
-    api.post<{ report_id: number; status: ReportStatus; measurements_created: number }>(
-      `/api/v1/reports/${id}/review/confirm`, { report_date: reportDate }),
+  confirmDate: (id: string, reportDate: string) =>
+    api.post<unknown>(`/api/v1/reports/${id}/date/confirm`, { report_date: reportDate }),
+  confirmCandidate: (id: string, candidateId: number) =>
+    api.postEmpty<ExtractedCandidate>(`/api/v1/reports/${id}/candidates/${candidateId}/confirm`),
+  confirmCandidates: (id: string, candidateIds: number[]) =>
+    api.post<{ report_id: number; status: ReportStatus; review_status: ReportReviewStatus | null; measurements_created: number }>(
+      `/api/v1/reports/${id}/review/confirm`, { candidate_ids: candidateIds }),
   summarize: (id: string, mode: SummaryMode) => {
     const form = new FormData();
     form.append('mode', mode);
@@ -191,6 +252,7 @@ export function summaryFromBackend(reportId: string, s: any): ReportSummary | un
     sections: typeof s.sections === 'string' ? JSON.parse(s.sections) : s.sections,
     createdAt: s.created_at,
     safetyMessage: s.safety_message ?? AI_SAFETY_MESSAGE,
+    generator: s.generator ?? null,
   };
 }
 

@@ -3,6 +3,7 @@ import {
   Activity, ChevronRight, Download, FileSearch, FileText, Info, ListChecks, Settings2, Sparkles, Upload,
 } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
+import { ResizablePanels } from '@/components/ResizablePanels';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Tabs } from '@/components/Tabs';
@@ -14,10 +15,11 @@ import { ReportSummaryPanel } from '@/components/reports/ReportSummaryPanel';
 import { ProcessingStagesList } from '@/components/reports/ProcessingStagesList';
 import { failureMessage, uploadStages } from '@/lib/processingStages';
 import {
-  DEMO_SOURCE, errorMessage, extractionMethodLabels, flagLabels, flagVariant, formatBytes, isProcessing, isReviewable,
-  reportStatusLabels, reportsApi, statusVariant, type ReportCapabilities, type ReportExtraction,
+  DEMO_SOURCE, dateSourceLabels, errorMessage, extractionMethodLabels, flagLabels, flagVariant, formatBytes, formatDay,
+  isProcessing, reportStatusShort, reportStatusText, reportVariant, reportsApi, reviewStatusLabels,
+  type ReportCapabilities, type ReportExtraction,
 } from '@/lib/reports';
-import type { MedicalMeasurement, Report, ReportStatus } from '@/lib/types';
+import type { MedicalMeasurement, Report } from '@/lib/types';
 
 interface ReportsProps {
   reports: Report[];
@@ -37,7 +39,16 @@ const typeLabels: Record<string, string> = {
 const typeLabel = (t: string) => typeLabels[t] ?? t;
 
 const reportTypes = ['All', 'Blood Test', 'Imaging Report', 'Discharge Summary', 'Clinical Note', 'Prescription', 'Other'];
-const statusOptions: ('All' | ReportStatus)[] = ['All', 'processing', 'needs_review', 'extracted', 'confirmed', 'completed', 'failed'];
+const statusOptions = [
+  { value: 'All', label: 'All' },
+  { value: 'processing', label: 'Processing' },
+  { value: 'needs_review', label: 'Needs review' },
+  { value: 'partially_confirmed', label: 'Partially confirmed' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'failed', label: 'Processing failed' },
+];
+const statusKeyOf = (r: Report) =>
+  r.processingStatus === 'processing' ? 'processing' : r.processingStatus === 'failed' ? 'failed' : r.reviewStatus ?? 'confirmed';
 
 const formatDate = (d: string) => {
   const date = new Date(d.length === 10 ? `${d}T00:00:00` : d);
@@ -69,7 +80,7 @@ export function Reports({
     if (q && !r.title.toLowerCase().includes(q) && !r.source.toLowerCase().includes(q)
       && !(r.laboratory ?? '').toLowerCase().includes(q)) return false;
     if (typeFilter !== 'All' && r.type !== typeFilter) return false;
-    if (statusFilter !== 'All' && (r.status === 'ready' ? 'completed' : r.status) !== statusFilter) return false;
+    if (statusFilter !== 'All' && statusKeyOf(r) !== statusFilter) return false;
     return true;
   }), [reports, search, typeFilter, statusFilter]);
 
@@ -103,7 +114,7 @@ export function Reports({
   }, [statusKey, loadExtraction]);
 
   useEffect(() => {
-    if (report) setActiveTab(isReviewable(report.status) ? 'values' : report.status === 'failed' ? 'details' : 'values');
+    if (report) setActiveTab(report.status === 'failed' ? 'details' : 'values');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report?.id]);
 
@@ -127,18 +138,21 @@ export function Reports({
   const failedTextAvailable = report?.status === 'failed' && !!currentExtraction?.text;
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:h-[calc(100vh-5rem)]">
+    <>
+    <ResizablePanels id="reports" className="lg:h-[calc(100vh-5rem)]" breakpoint={1024} panels={[
+      { label: 'report list', min: 240, size: 26, max: 45 },
+      { label: 'report detail', min: 380, size: 42 },
+      { label: 'AI summary', min: 260, size: 32, max: 50 },
+    ]}>
       {/* Left: report list */}
-      <div className="lg:col-span-3 lg:overflow-y-auto">
+      <div className="h-full lg:overflow-y-auto">
         <Card className="lg:h-full flex flex-col">
           <CardHeader title="Reports" subtitle={`${reports.length} total`} icon={<FileText className="h-4.5 w-4.5" />} />
-          <div className="px-4 pb-3">
-            <FilterBar searchValue={search} onSearchChange={setSearch} searchPlaceholder="Search reports...">
-              <SelectFilter label="Type" value={typeFilter} options={reportTypes.map((t) => ({ value: t, label: t === 'All' ? 'All' : typeLabel(t) }))} onChange={setTypeFilter} />
-              <SelectFilter label="Status" value={statusFilter} options={statusOptions.map((s) => ({ value: s, label: s === 'All' ? 'All' : reportStatusLabels[s] }))} onChange={setStatusFilter} />
+          <div className="space-y-2 border-b border-neutral-200 px-4 pb-3 dark:border-neutral-800" data-testid="reports-toolbar">
+            <FilterBar layout="stacked" searchValue={search} onSearchChange={setSearch} searchPlaceholder="Search reports…">
+              <SelectFilter block label="Type" value={typeFilter} options={reportTypes.map((t) => ({ value: t, label: t === 'All' ? 'All' : typeLabel(t) }))} onChange={setTypeFilter} />
+              <SelectFilter block label="Status" value={statusFilter} options={statusOptions} onChange={setStatusFilter} />
             </FilterBar>
-          </div>
-          <div className="border-b border-neutral-200 px-3 pb-3 dark:border-neutral-800">
             <Button className="w-full" onClick={() => setUploadOpen(true)} data-testid="open-upload">
               <Upload className="h-4 w-4" />
               Upload Report
@@ -170,7 +184,8 @@ export function Reports({
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">{typeLabel(r.type)}</p>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-neutral-400">{formatDate(r.date)}</span>
-                    <StatusBadge variant={statusVariant(r.status)} pulse={isProcessing(r.status)}>{reportStatusLabels[r.status]}</StatusBadge>
+                    <StatusBadge variant={reportVariant(r)} pulse={r.processingStatus === 'processing'}>{reportStatusShort(r)}</StatusBadge>
+                    {r.processingStatus === 'processed' && r.dateConfirmed === false && <StatusBadge variant="neutral">Date unconfirmed</StatusBadge>}
                     {r.source === DEMO_SOURCE && <StatusBadge variant="neutral">Synthetic demo</StatusBadge>}
                   </div>
                 </button>
@@ -181,7 +196,7 @@ export function Reports({
       </div>
 
       {/* Center: report detail */}
-      <div className="lg:col-span-5 lg:overflow-y-auto">
+      <div className="h-full lg:overflow-y-auto">
         <Card className="lg:h-full flex flex-col">
           {!report ? (
             <div className="flex flex-1 items-center justify-center p-8">
@@ -191,11 +206,11 @@ export function Reports({
             <>
               <CardHeader
                 title={report.title}
-                subtitle={`${typeLabel(report.type)} · ${formatDate(report.date)}`}
+                subtitle={`${typeLabel(report.type)} · ${formatDate(report.date)}${report.dateConfirmed === false ? ' (date not confirmed)' : ''}`}
                 action={
                   <div className="flex items-center gap-1">
-                    <StatusBadge variant={statusVariant(report.status)} pulse={isProcessing(report.status)}>
-                      <span data-testid="report-status">{reportStatusLabels[report.status]}</span>
+                    <StatusBadge variant={reportVariant(report)} pulse={report.processingStatus === 'processing'}>
+                      <span data-testid="report-status">{reportStatusText(report)}</span>
                     </StatusBadge>
                     <Button variant="ghost" size="sm" onClick={() => onNavigateClinical(report.id)}>
                       <Settings2 className="h-3.5 w-3.5" /> Clinical View
@@ -210,7 +225,7 @@ export function Reports({
               )}
               <Tabs
                 tabs={[
-                  { key: 'values', label: isReviewable(report.status) ? 'Review' : 'Values', icon: <ListChecks className="h-3.5 w-3.5" /> },
+                  { key: 'values', label: report.reviewStatus && report.reviewStatus !== 'confirmed' ? 'Review values' : 'Values', icon: <ListChecks className="h-3.5 w-3.5" /> },
                   { key: 'text', label: 'Extracted Text', icon: <FileSearch className="h-3.5 w-3.5" /> },
                   { key: 'original', label: 'Original', icon: <FileText className="h-3.5 w-3.5" /> },
                   { key: 'details', label: 'Details', icon: <Info className="h-3.5 w-3.5" /> },
@@ -243,26 +258,28 @@ export function Reports({
                 ) : (
                   <>
                     {activeTab === 'values' && (
-                      isReviewable(report.status) ? (
-                        extraction ? (
+                      currentExtraction ? (
+                        <div className="space-y-4">
+                          <ConfirmedValues measurements={reportMeasurements} onOpenTimeline={onNavigateTimeline} legacy={false} />
                           <ReviewPanel
                             report={report}
-                            extraction={extraction}
+                            extraction={currentExtraction}
                             onExtractionChange={setExtraction}
-                            onConfirmed={onRefresh}
+                            onChanged={onRefresh}
                           />
-                        ) : extractionError ? (
-                          <ErrorState message={extractionError} onRetry={() => loadExtraction(report.id)} />
-                        ) : <LoadingState message="Loading extracted values…" />
-                      ) : (
-                        <ConfirmedValues measurements={reportMeasurements} onOpenTimeline={onNavigateTimeline} legacy={report.status === 'ready'} />
-                      )
+                        </div>
+                      ) : report.status === 'ready' || extractionError?.includes('not been processed') ? (
+                        <ConfirmedValues measurements={reportMeasurements} onOpenTimeline={onNavigateTimeline} legacy />
+                      ) : extractionError ? (
+                        <ErrorState message={extractionError} onRetry={() => loadExtraction(report.id)} />
+                      ) : <LoadingState message="Loading extracted values…" />
                     )}
                     {activeTab === 'text' && (
                       extraction ? (
                         <div className="space-y-2" data-testid="extracted-text">
                           <p className="text-xs text-neutral-500">
                             {extractionMethodLabels[extraction.method]} · {extraction.page_count} page(s) · {extraction.char_count.toLocaleString()} characters
+                            {' · '}{extraction.method === 'pdf_text' ? 'OCR not required' : 'OCR used'}
                             {extraction.quality === 'low' && ' · lower reliability — check against the original'}
                           </p>
                           <pre className="whitespace-pre-wrap rounded-lg bg-neutral-50 p-4 font-mono text-xs text-neutral-700 dark:bg-neutral-800/50 dark:text-neutral-300">{extraction.text}</pre>
@@ -303,7 +320,7 @@ export function Reports({
       </div>
 
       {/* Right: AI summary */}
-      <div className="lg:col-span-4 lg:overflow-y-auto">
+      <div className="h-full lg:overflow-y-auto">
         <Card className="lg:h-full flex flex-col">
           <CardHeader title="AI Summary" icon={<Sparkles className="h-4.5 w-4.5" />} />
           <div className="flex-1 overflow-y-auto p-4">
@@ -311,6 +328,7 @@ export function Reports({
           </div>
         </Card>
       </div>
+    </ResizablePanels>
 
       <UploadReportDialog
         open={uploadOpen}
@@ -320,7 +338,7 @@ export function Reports({
         onUploaded={async (id) => { onSelectReport(id); await onRefresh(); }}
         onReviewReport={(id) => { onSelectReport(id); setActiveTab('values'); }}
       />
-    </div>
+    </>
   );
 }
 
@@ -330,12 +348,17 @@ function ConfirmedValues({ measurements, onOpenTimeline, legacy }: {
   legacy: boolean;
 }) {
   if (measurements.length === 0) {
+    if (!legacy) {
+      return (
+        <p className="rounded-lg border border-dashed border-neutral-300 px-3 py-2 text-xs text-neutral-500 dark:border-neutral-700" data-testid="no-confirmed-values">
+          No confirmed values yet. Review the detected measurements below — only values you confirm are saved.
+        </p>
+      );
+    }
     return (
       <EmptyState
         title="No confirmed values"
-        description={legacy
-          ? 'This report was added before value extraction was available.'
-          : 'No measurements were confirmed for this report. Its text is available in the Extracted Text tab.'}
+        description="This report was added before value extraction was available."
         icon={<ListChecks className="h-6 w-6" />}
       />
     );
@@ -343,7 +366,7 @@ function ConfirmedValues({ measurements, onOpenTimeline, legacy }: {
   return (
     <div className="space-y-3" data-testid="confirmed-values">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-neutral-500">{measurements.length} value(s) confirmed by you and saved to your health record.</p>
+        <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Confirmed values <span className="font-normal text-neutral-500">· {measurements.length} saved to your health record</span></p>
         <Button variant="ghost" size="sm" onClick={onOpenTimeline}><Activity className="h-3.5 w-3.5" /> View in timeline</Button>
       </div>
       <div className="overflow-x-auto">
@@ -382,11 +405,16 @@ function ReportDetails({ report, extraction, measurementCount }: {
   extraction: ReportExtraction | null;
   measurementCount: number;
 }) {
+  const processing = report.processingStatus === 'processing' ? 'Processing'
+    : report.processingStatus === 'failed' ? 'Processing failed' : 'Processed';
   const rows: [string, string][] = [
     ['Type', typeLabel(report.type)],
     ['Title', report.title],
-    ['Report date', formatDate(report.date)],
-    ['Status', reportStatusLabels[report.status]],
+    ['Report date', `${formatDay(report.date)}${report.dateConfirmed ? ' (confirmed)' : ' (not confirmed)'}`],
+    ['Date provenance', report.dateSource ? dateSourceLabels[report.dateSource] ?? report.dateSource : 'Recorded before date confirmation existed'],
+    ['Detected date', report.detectedDate ? formatDay(report.detectedDate) : '—'],
+    ['Processing status', processing],
+    ['Review status', report.reviewStatus ? reviewStatusLabels[report.reviewStatus] : '—'],
     ['Source', report.source],
     ['Laboratory', report.laboratory || '—'],
     ['Hospital', report.hospital || '—'],
@@ -395,7 +423,11 @@ function ReportDetails({ report, extraction, measurementCount }: {
     ['Size', report.fileSize ? formatBytes(report.fileSize) : '—'],
     ['Uploaded', report.uploadedAt ? new Date(report.uploadedAt).toLocaleString() : '—'],
     ['Extraction', extraction ? `${extractionMethodLabels[extraction.method]} (${extraction.status})` : '—'],
+    ['OCR', extraction ? (extraction.method === 'pdf_text' ? 'Not required' : extraction.method === 'none' ? '—' : 'Used') : '—'],
+    ['Detected values', String(report.candidateCount ?? 0)],
     ['Confirmed values', String(measurementCount)],
+    ['Awaiting review', String(report.pendingCount ?? 0)],
+    ['Ignored values', String(report.ignoredCount ?? 0)],
     ['Source document', `Report #${report.id} — original stored unchanged`],
   ];
   return (
