@@ -16,6 +16,16 @@ feature is **explainable chest X-ray screening assistance**:
 > clinically validated by HoloMed. Model scores are uncalibrated model outputs, not
 > probabilities of disease, and Grad-CAM is not proof of disease.
 
+## Deployment modes
+
+- **Primary: local GPU hosting.** `VISION_PROVIDER=local` + `TEXT_AI_PROVIDER=ollama` runs
+  everything on one machine with an NVIDIA GPU. It needs no cloud credentials and no internet
+  access.
+- **Optional: Modal and OmniRoute.** Modal (`VISION_PROVIDER=cloud`) runs the same vision
+  pipeline on a managed GPU, and OmniRoute (`TEXT_AI_PROVIDER=omniroute`) hosts the text AI.
+  Neither is required for local operation.
+- **No fallback:** providers are always explicit and never fall back to each other.
+
 ## Repository layout
 
 | Path | Contents |

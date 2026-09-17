@@ -27,6 +27,7 @@ WEIGHTS_MOUNT = "/weights"
 _ALLOWED = (
     "__init__.py",
     "config.py",
+    "logger.py",
     "services/__init__.py",
     "services/vision/",
     "vision_worker/",

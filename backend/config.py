@@ -14,7 +14,9 @@ GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
 
 # Vision AI service (chest radiograph screening model, local checkpoint only)
-VISION_PROVIDER = os.getenv('VISION_PROVIDER', 'local')  # local | cloud (cloud: reserved, not implemented)
+# local (default, primary deployment): in-process model on this machine's GPU/CPU; needs no cloud settings.
+# cloud (optional): private Modal GPU worker; requires VISION_CLOUD_URL + VISION_CLOUD_TOKEN. No fallback.
+VISION_PROVIDER = os.getenv('VISION_PROVIDER', 'local')
 VISION_PRELOAD = os.getenv('VISION_PRELOAD', '0').strip().lower() in ('1', 'true', 'yes')  # load model at startup
 # Cloud vision worker (VISION_PROVIDER=cloud): HTTPS URL of the private GPU worker and its bearer token.
 VISION_CLOUD_URL = os.getenv('VISION_CLOUD_URL', '')

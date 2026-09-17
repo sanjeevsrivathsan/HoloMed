@@ -3,17 +3,31 @@
 > HoloMed is a hackathon/research demonstration. It is **not** clinical software, and the model
 > has not been clinically validated by HoloMed. No regulatory compliance is claimed.
 
+> **Local GPU hosting is the primary demonstration/development deployment.**
+> **Modal is an optional cloud deployment target and is not required for local operation.**
+
+| Mode | Setting | Role |
+|---|---|---|
+| Local vision | `VISION_PROVIDER=local` (default) | **Primary.** DenseNet-121 on this machine's NVIDIA GPU (CPU fallback). No cloud credentials, no `VISION_CLOUD_*` and no internet access needed. |
+| Local text | `TEXT_AI_PROVIDER=ollama` (default) | **Primary.** Local Ollama for explanations. |
+| Cloud vision | `VISION_PROVIDER=cloud`, `VISION_CLOUD_URL=<server-side value>`, `VISION_CLOUD_TOKEN=<server-side secret>` | **Optional.** The existing Modal worker. |
+| Hosted text | `TEXT_AI_PROVIDER=omniroute` + `OMNIROUTE_*` | **Optional.** Hosted OmniRoute gateway. |
+
+The provider is always explicit. There is **no automatic fallback** in either direction
+(local→cloud or cloud→local), and an unavailable configured provider returns HTTP 503.
+
 **Status (2026-09-17)**
-- **Local development:** verified end to end.
+- **Local GPU deployment:** verified end to end on an RTX 3070 Ti (PNG, DICOM, Grad-CAM,
+  Ollama explanations).
 - **Cloud vision worker:** implemented and tested against a locally running worker.
-- **Modal deployment:** not yet completed. The Modal volume and secret exist, but deployment of the
-  T4 function is pending on the Modal account's billing setup.
-- **Pending measurements:** cloud cold-start and latency numbers will be added here after the first
-  real deployment.
+- **Modal:** not yet deployed. The Modal volume and secret exist; deploying the T4 function
+  requires a payment method on the Modal account.
+- **Pending measurements:** cloud cold-start and latency numbers will be added after a real
+  deployment.
 
 ## 1. Architecture
 
-### Local development (default)
+### Local GPU (primary, default)
 
 ```
 Browser ──> Vite dev server (:5173, proxies /api and /ohif)
@@ -22,7 +36,7 @@ Browser ──> Vite dev server (:5173, proxies /api and /ohif)
                     └── TEXT_AI_PROVIDER=ollama ──> local Ollama (:11434), explanation text only
 ```
 
-### Cloud vision (deployment)
+### Cloud vision (optional)
 
 ```
 Browser ──> HoloMed FastAPI
@@ -124,7 +138,7 @@ cd frontend && npm install && npm run dev      # http://127.0.0.1:5173
 |---|---|
 | `GET /api/v1/health` | Application up |
 | `GET /api/v1/ready` | Database reachable |
-| `GET /api/v1/vision/status` | `{provider, provider_configured, model_ready, status}` with status `ready`, `loading`, `standby` or `unavailable`. Contains no URLs or credentials. |
+| `GET /api/v1/vision/status` | `{provider, provider_configured, model_ready, accelerator, status}` with status `ready`, `loading`, `standby` or `unavailable`. Contains no URLs, device names, paths or credentials. |
 
 ### Tests
 ```bash
@@ -133,7 +147,9 @@ HOLOMED_LIVE_OLLAMA=1 .venv/Scripts/python -m pytest backend/tests -k live   # o
 cd frontend && npm run typecheck && npm run build
 ```
 
-## 5. Deploy the vision worker on Modal
+## 5. Optional: deploy the vision worker on Modal
+
+This step is only needed for `VISION_PROVIDER=cloud`; local operation does not use Modal.
 
 The worker code is `backend/vision_worker/app.py`; the Modal app is `deploy/modal/holomed_vision.py`.
 
@@ -143,8 +159,9 @@ The worker code is `backend/vision_worker/app.py`; the Modal app is `deploy/moda
   inference serialized by the model lock.
 - **Image:** Debian slim with Python 3.12, torch 2.6.0 and torchvision 0.21.0 (CUDA 12.4 wheels),
   torchxrayvision 1.5.4, pydicom 3.0.2, pillow 12.3.0, numpy 2.4.6 and FastAPI 0.111.0.
-- **Code shipped:** only `backend/config.py`, `backend/services/vision/` and
-  `backend/vision_worker/`. No routers, tests, `.env` or weights.
+- **Code shipped:** only `backend/config.py`, `backend/logger.py`, `backend/services/vision/`
+  and `backend/vision_worker/`. No routers, tests, `.env` or weights. A test checks that every
+  backend module the worker imports is shipped.
 - **Weights:** the private Modal Volume `holomed-vision-weights`, mounted **read-only** at
   `/weights`.
 - **Authentication:** every request needs `Authorization: Bearer <VISION_WORKER_TOKEN>`.
@@ -185,10 +202,21 @@ explanation).
 
 | Goal | Setting |
 |---|---|
-| Local GPU/CPU inference (development, reference) | `VISION_PROVIDER=local` (default) |
-| Modal GPU inference | `VISION_PROVIDER=cloud` + `VISION_CLOUD_URL` + `VISION_CLOUD_TOKEN` |
-| Local text explanations | `TEXT_AI_PROVIDER=ollama` (default) |
-| Hosted text explanations | `TEXT_AI_PROVIDER=omniroute` + `OMNIROUTE_*` |
+| **Local GPU inference (primary; development/demo)** | `VISION_PROVIDER=local` (default) |
+| Optional Modal GPU inference | `VISION_PROVIDER=cloud` + `VISION_CLOUD_URL` + `VISION_CLOUD_TOKEN` |
+| **Local text explanations (primary)** | `TEXT_AI_PROVIDER=ollama` (default) |
+| Optional hosted text explanations | `TEXT_AI_PROVIDER=omniroute` + `OMNIROUTE_*` |
+
+### What the UI shows
+The screening workspace shows the active provider from `GET /api/v1/vision/status`:
+
+| Mode | Badge | Model Information |
+|---|---|---|
+| Local | **Local GPU** (or **Local CPU**) | Provider, the detected device name reported by the model service (for example the NVIDIA GPU name, never hardcoded), and model DenseNet-121 |
+| Cloud | **Managed GPU** | Provider and model; no worker URL, token or infrastructure details |
+
+The status endpoint returns only
+`provider`, `provider_configured`, `model_ready`, `accelerator` (`gpu`/`cpu`) and `status`.
 
 - **Frontend:** unchanged in every case.
 - **Misconfiguration:** an unknown or unconfigured provider returns `503`. Nothing falls back

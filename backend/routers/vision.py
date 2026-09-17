@@ -152,6 +152,7 @@ async def status():
         "provider": key if key in ("local", "cloud") else "unknown",
         "provider_configured": bool(info.get("configured")),
         "model_ready": bool(info.get("model_ready")),
+        "accelerator": info.get("accelerator") if info.get("accelerator") in ("gpu", "cpu") else None,
         "status": ("ready" if info.get("model_ready")
                    else "unavailable" if not info.get("configured") or info.get("reachable") is False
                    else "loading" if key == "cloud" or config.VISION_PRELOAD

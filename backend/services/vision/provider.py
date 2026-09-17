@@ -3,10 +3,11 @@
 The router depends only on ``VisionProvider.screen``; which backend runs the
 model is configuration (``VISION_PROVIDER``), invisible to API clients.
 
-- ``local`` (default): the validated in-process TorchXRayVision implementation,
-  the development and reference path.
-- ``cloud``: the same code and weights running in the private GPU worker
-  (backend/vision_worker, deployed on Modal); see ``cloud.py``.
+- ``local`` (default, primary deployment): the validated in-process
+  TorchXRayVision implementation on this machine's GPU (CPU fallback). Needs no
+  cloud credentials or network access.
+- ``cloud`` (optional): the same code and weights running in the private GPU
+  worker (backend/vision_worker, deployed on Modal); see ``cloud.py``.
 
 There is deliberately no fallback between providers: if ``cloud`` is selected
 and unavailable, requests fail with 503 instead of silently running elsewhere.
@@ -20,7 +21,7 @@ from typing import Optional, Protocol
 
 from ... import config
 from .cloud import CloudVisionProvider
-from .errors import VisionProviderUnavailable  # noqa: F401  (re-exported)
+from .errors import VisionModelError, VisionProviderUnavailable  # noqa: F401  (re-exported)
 from .schemas import VisionScreenResponse
 
 logger = logging.getLogger(__name__)
@@ -45,12 +46,19 @@ class LocalVisionProvider:
 
     def status(self) -> dict:
         configured = os.path.isfile(config.VISION_WEIGHTS_PATH)
+        accelerator = None
         try:
             from . import model
             ready = model.is_loaded()
+            device_type = model.loaded_device_type()
+            if device_type is None and configured:
+                device_type = model.resolve_device(config.VISION_DEVICE).type
+            accelerator = {"cuda": "gpu", "cpu": "cpu"}.get(device_type)
         except ImportError:
             configured, ready = False, False
-        return {"configured": configured, "model_ready": ready}
+        except VisionModelError:
+            ready = False  # e.g. VISION_DEVICE=cuda without CUDA
+        return {"configured": configured, "model_ready": ready, "accelerator": accelerator}
 
 
 _PROVIDERS = {"local": LocalVisionProvider, "cloud": CloudVisionProvider}

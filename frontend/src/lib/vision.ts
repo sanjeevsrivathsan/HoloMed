@@ -209,6 +209,35 @@ export function describeScreeningError(err: unknown): ScreeningError {
   return { kind: 'unknown', title: 'Screening failed', message: 'The screening request could not be completed. Please try again.' };
 }
 
+// ─── Vision service status (GET /api/v1/vision/status) ────────────────────────
+
+export interface VisionStatus {
+  provider: 'local' | 'cloud' | 'unknown';
+  provider_configured: boolean;
+  model_ready: boolean;
+  accelerator: 'gpu' | 'cpu' | null;
+  status: 'ready' | 'loading' | 'standby' | 'unavailable';
+}
+
+export function getVisionStatus(): Promise<VisionStatus> {
+  return api.get<VisionStatus>('/api/v1/vision/status');
+}
+
+/** Human label for where inference runs; never includes URLs or credentials. */
+export function providerLabel(status: VisionStatus | null): string {
+  if (!status) return 'Checking…';
+  if (status.provider === 'cloud') return 'Managed GPU';
+  if (status.provider === 'local') return status.accelerator === 'cpu' ? 'Local CPU' : 'Local GPU';
+  return 'Unavailable';
+}
+
+/** "cuda:0 (NVIDIA GeForce RTX 3070 Ti)" → "NVIDIA GeForce RTX 3070 Ti"; "cpu" → "CPU". */
+export function deviceLabel(device: string): string {
+  const match = device.match(/\(([^)]+)\)/);
+  if (match) return match[1];
+  return device.toLowerCase() === 'cpu' ? 'CPU' : device;
+}
+
 const EXPLANATION_TIMEOUT_MS = 120_000;
 
 /** Request a language-model explanation for one model output of a screening result. */

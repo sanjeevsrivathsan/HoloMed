@@ -208,7 +208,7 @@ def test_cloud_misconfiguration_is_controlled(cloud_env, monkeypatch, url, token
     with pytest.raises(VisionProviderUnavailable):
         provider.get_vision_provider().screen(b"data")
     assert seen == []
-    assert provider.get_vision_provider().status() == {"configured": False, "model_ready": False}
+    assert provider.get_vision_provider().status() == {"configured": False, "model_ready": False, "accelerator": None}
 
 
 def test_cloud_failure_never_falls_back_to_local(cloud_env, monkeypatch):
@@ -231,11 +231,11 @@ def test_cloud_token_never_logged(cloud_env, monkeypatch, caplog):
 
 def test_cloud_status_reports_remote_readiness(cloud_env, monkeypatch):
     route_cloud(monkeypatch, lambda r: httpx.Response(200, json={"status": "ready", "model_ready": True}))
-    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": True, "reachable": True}
+    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": True, "reachable": True, "accelerator": "gpu"}
     route_cloud(monkeypatch, lambda r: httpx.Response(200, json={"status": "loading", "model_ready": False}))
-    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": False, "reachable": True}
+    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": False, "reachable": True, "accelerator": "gpu"}
     route_cloud(monkeypatch, lambda r: httpx.Response(401, json={}))
-    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": False, "reachable": False}
+    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": False, "reachable": False, "accelerator": "gpu"}
 
     def down(request):
         raise httpx.ConnectError("refused")
@@ -279,7 +279,8 @@ def test_api_end_to_end_via_cloud_provider(api, cloud_env, worker, monkeypatch):
     assert len(body["findings"]) == 18 and body["result_id"]
     assert "patient_scan" not in resp.text
     status = api.get("/api/v1/vision/status").json()
-    assert status == {"provider": "cloud", "provider_configured": True, "model_ready": True, "status": "ready"}
+    assert status == {"provider": "cloud", "provider_configured": True, "model_ready": True, "accelerator": "gpu",
+                      "status": "ready"}
     assert TOKEN not in json.dumps(status) and "vision-worker" not in json.dumps(status)
 
 
@@ -296,7 +297,8 @@ def test_api_status_unconfigured_cloud(api, monkeypatch):
     monkeypatch.setattr(config, "VISION_PROVIDER", "cloud")
     monkeypatch.setattr(config, "VISION_CLOUD_URL", "")
     assert api.get("/api/v1/vision/status").json() == {
-        "provider": "cloud", "provider_configured": False, "model_ready": False, "status": "unavailable"}
+        "provider": "cloud", "provider_configured": False, "model_ready": False, "accelerator": None,
+        "status": "unavailable"}
 
 
 def test_api_status_local(api, monkeypatch):

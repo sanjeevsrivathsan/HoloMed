@@ -147,6 +147,11 @@ def is_loaded() -> bool:
     return _instance is not None
 
 
+def loaded_device_type() -> Optional[str]:
+    """'cuda' or 'cpu' for the loaded singleton, None if not loaded."""
+    return _instance.device.type if _instance is not None else None
+
+
 def reset_vision_model() -> None:
     """Drop the singleton (tests only)."""
     global _instance

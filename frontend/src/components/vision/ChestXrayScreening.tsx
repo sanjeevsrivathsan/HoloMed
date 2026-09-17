@@ -21,9 +21,9 @@ import { SafetyNotice } from '@/components/SafetyNotice';
 import { useAuth } from '@/context/AuthContext';
 import { AiExplanationPanel, type ExplanationState } from '@/components/vision/AiExplanationPanel';
 import {
-  ACCEPT_ATTR, describeExplanationError, describeScreeningError, explainFinding, imageDataUrl,
-  screenChestXray, validateUpload,
-  type DetectedFormat, type ScreeningError, type ScreeningRun, type VisionExplanation,
+  ACCEPT_ATTR, describeExplanationError, describeScreeningError, deviceLabel, explainFinding,
+  getVisionStatus, imageDataUrl, providerLabel, screenChestXray, validateUpload,
+  type DetectedFormat, type ScreeningError, type ScreeningRun, type VisionExplanation, type VisionStatus,
 } from '@/lib/vision';
 
 const SCREENING_SAFETY_TEXT =
@@ -38,6 +38,13 @@ interface SelectedFile {
 }
 
 const FORMAT_LABEL: Record<DetectedFormat, string> = { png: 'PNG', jpeg: 'JPEG', dicom: 'DICOM' };
+
+const STATUS_TEXT: Record<VisionStatus['status'], string> = {
+  ready: 'Ready',
+  loading: 'Loading model',
+  standby: 'Loads on first use',
+  unavailable: 'Unavailable',
+};
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -79,6 +86,16 @@ export function ChestXrayScreening() {
   useEffect(() => () => {
     if (selected?.previewUrl) URL.revokeObjectURL(selected.previewUrl);
   }, [selected]);
+
+  // Which vision provider is active (local GPU or managed GPU); refreshed after each screening.
+  const [visionStatus, setVisionStatus] = useState<VisionStatus | null>(null);
+  const [statusFailed, setStatusFailed] = useState(false);
+  const refreshStatus = () => {
+    getVisionStatus()
+      .then((s) => { setVisionStatus(s); setStatusFailed(false); })
+      .catch(() => setStatusFailed(true));
+  };
+  useEffect(() => { refreshStatus(); }, []);
 
   const resetResults = () => {
     requestSeq.current += 1;
@@ -151,6 +168,7 @@ export function ChestXrayScreening() {
       setExplanations({ [target]: { explanation: result.response.explanation, run: result } });
       setSelectedTarget(target);
       setView('overlay');
+      refreshStatus();
       void requestAiExplanation(target, result.response.result_id);
     } catch (err) {
       if (seq !== requestSeq.current) return;
@@ -335,6 +353,18 @@ export function ChestXrayScreening() {
               title="Chest X-Ray AI Screening"
               subtitle="PNG, JPEG, or DICOM (CR/DX) · up to 50 MB"
               icon={<Sparkles className="h-4 w-4" />}
+              action={
+                <span data-testid="provider-badge">
+                  <StatusBadge
+                    variant={statusFailed ? 'neutral' : visionStatus?.status === 'ready' ? 'success'
+                      : visionStatus?.status === 'unavailable' ? 'error' : 'neutral'}
+                    icon={<Cpu className="h-3 w-3" />}
+                  >
+                    {statusFailed ? 'Vision status unavailable'
+                      : `${providerLabel(visionStatus)}${visionStatus ? ` · ${STATUS_TEXT[visionStatus.status]}` : ''}`}
+                  </StatusBadge>
+                </span>
+              }
             />
             <div className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5">
               <input
@@ -516,6 +546,10 @@ export function ChestXrayScreening() {
               <Card>
                 <CardHeader title="Model Information" icon={<Cpu className="h-4 w-4" />} />
                 <dl className="space-y-1.5 px-4 pb-4 text-xs sm:px-5 sm:pb-5" data-testid="model-info">
+                  <InfoRow label="Provider" value={providerLabel(visionStatus)} />
+                  {visionStatus?.provider !== 'cloud' && (
+                    <InfoRow label="Device" value={deviceLabel(response.model.device)} />
+                  )}
                   <InfoRow label="Model" value={response.model.name} />
                   <InfoRow label="Weights" value={response.model.weights} mono />
                   <InfoRow
@@ -541,7 +575,9 @@ export function ChestXrayScreening() {
                   <InfoRow label="Server total" value={ms(shownRun.response.timing.total_ms)} mono strong />
                   <InfoRow label="Round trip (browser)" value={ms(shownRun.roundTripMs)} mono />
                   <p className="pt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
-                    Measured for this request on the HoloMed server ({response.model.device.split(' (')[0]}).
+                    {visionStatus?.provider === 'cloud'
+                      ? 'Measured for this request on the managed GPU service.'
+                      : `Measured for this request on the local ${visionStatus?.accelerator === 'cpu' ? 'CPU' : 'GPU'} (${deviceLabel(response.model.device)}).`}
                   </p>
                 </dl>
               </Card>
