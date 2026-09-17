@@ -33,6 +33,36 @@ Upload (PDF / PNG / JPEG)
 | `failed` | Extraction failed (reason code shown); retry is available |
 | `ready` | Legacy status of reports created before this pipeline; shown as Completed |
 
+### Processing stages
+
+Processing is a background task with explicit stages, recorded in `reportextraction.stage` and
+returned as `stages` by `GET /api/v1/reports/{id}/extraction`:
+
+| Stage | Mandatory | Notes |
+|---|---|---|
+| Upload | yes | Validation (signature, size, type) and storage of the unchanged original |
+| Extract text | yes | PDF text layer |
+| OCR fallback | only when needed | Runs only for pages/images without a text layer; otherwise `skipped` ("Not required") |
+| Extract structured data | yes | Deterministic parser; 0 values is a valid result for non-lab documents |
+| Save report | yes | Candidates, document date and status in one transaction |
+| AI summary | **no** | Not part of processing. Generated later, on request, from confirmed data |
+
+Each stage is `pending`, `active`, `completed`, `skipped`, `failed` or `not_reached`.
+
+- On failure, the failing stage is `failed` and every later stage is `not_reached`; nothing after
+  a failure is shown as completed.
+- The failed stage carries a readable reason, for example: "The report text was extracted, but
+  structured measurements could not be created. You can retry processing." Text extracted before
+  the failure is kept and can be viewed.
+- Error codes: `pdf_unreadable`, `pdf_encrypted`, `pdf_empty`, `image_unreadable`,
+  `ocr_unavailable`, `no_text_found`, `file_missing`, `structured_extraction_failed`,
+  `persistence_failed`, `internal_error`.
+
+The upload dialog and report detail show these stages live, polling while processing. "Report
+processed" appears only when every stage is `completed` or `skipped`. Text AI availability is
+shown separately ("AI summary unavailable … report processing is not affected"). Upload,
+extraction, review and confirmation never call the text AI provider.
+
 ## 2. Data model
 
 No new report or measurement tables were added for blood tests. The pipeline reuses:
@@ -44,7 +74,8 @@ No new report or measurement tables were added for blood tests. The pipeline reu
 - `reportsummary`: the AI summary (existing table).
 - `sourcereference`: one `document` reference per report (`report:<id>`; never a filesystem path).
 
-Two derived-artifact tables were added (Alembic revision `7a1c2e3d4f50`):
+Two derived-artifact tables were added (Alembic revisions `7a1c2e3d4f50` and `7a2b3c4d5e60`, which
+adds `reportextraction.stage`):
 
 - `reportextraction`: one row per report. Holds the extracted text, method (`pdf_text`, `ocr`,
   `pdf_text+ocr`), quality, page and character counts, the document date, an error code, warnings
@@ -55,6 +86,13 @@ Two derived-artifact tables were added (Alembic revision `7a1c2e3d4f50`):
 
 The original upload is never modified. Deleting a report removes its derived rows. Removing demo
 data also deletes the demo files.
+
+**Schema upgrades:** the backend creates missing tables at startup but cannot add columns to
+existing tables. If a model column is missing, startup logs `Database schema is out of date
+(missing columns: …)`. Apply the migrations with
+`python -m alembic -c backend/alembic/alembic.ini upgrade head`. A database whose Phase 7A tables
+were created by startup rather than by Alembic must first be stamped with
+`… stamp 7a1c2e3d4f50`, then upgraded.
 
 ## 3. Extraction
 
@@ -86,6 +124,10 @@ data also deletes the demo files.
     never flags a result)
 - **Dates:** a collection date is preferred over a report date. Ambiguous day/month dates
   (e.g. `03/04/2025`) are not guessed; the user enters the date during review.
+- **OCR spacing:** OCR often drops spaces ("FastingBloodGlucose", "SerumCreatinine",
+  "BloodPressure:124/80mmHg") or glues a date to its time ("02-Sep-202608:15"). Canonical names,
+  blood pressure and dates are also matched in that compact form. Compact matching never creates
+  new canonical names; for example "RandomGlucose" and "TotalCholesterol" stay unmapped.
 
 ## 5. Review
 
@@ -161,7 +203,7 @@ REAL PATIENT DATA", with source "HoloMed demo (synthetic)".
 | `POST /api/v1/reports` | Upload (multipart: `file`, `type`, optional `title`, `laboratory`, `hospital`, `report_date`) |
 | `GET /api/v1/reports` | List with status, extraction status, candidate/measurement counts, summary |
 | `GET /api/v1/reports/{id}` · `/download` · `DELETE` | Metadata · original file · delete (with derived data) |
-| `GET /api/v1/reports/{id}/extraction` | Extracted text, method, quality, warnings, timings, candidates |
+| `GET /api/v1/reports/{id}/extraction` | Processing `stage` and `stages`, extracted text, method, quality, warnings, timings, candidates |
 | `POST /api/v1/reports/{id}/extraction/retry` | Re-run extraction (not after confirmation) |
 | `PATCH /api/v1/reports/{id}/candidates/{cid}` | Edit / accept / reject / undo a candidate |
 | `POST /api/v1/reports/{id}/review/confirm` | `{report_date}` → canonical measurements |
@@ -193,7 +235,9 @@ Measured on the development machine (Windows 11, local backend, Ollama `qwen3:8b
 | Upload → "ready for review" in the browser (1-page PDF, includes polling) | 0.2–2.4 s |
 | OCR of a 1-page PNG (backend, CPU) | ~1.2–1.7 s |
 | Upload → review ready for a scanned PNG (browser) | 2.1–2.6 s |
-| AI summary, standard mode (local qwen3:8b, including validation) | 5–11 s; roughly 1 in 3 answers needs a retry (+~5 s) |
+| AI summary, standard mode (local qwen3:8b, including validation) | 5–11 s when the model is on the GPU; roughly 1 in 3 answers needs a retry (+~5 s). Much slower when Ollama is busy or partly on the CPU (see Troubleshooting). |
+| Realistic synthetic 2-page lab PDF (~1 MB, Chromium-generated, 11 values): upload → processed | 0.35–0.65 s (backend extraction 16–81 ms; OCR skipped) |
+| Scanned 1-page synthetic lab PDF (OCR): upload → processed | 4.7–5.7 s (backend OCR ~3.9 s) |
 | Structured search (browser round trip) | 70–260 ms |
 | Load demo data (3 reports) | 0.1–0.35 s |
 
@@ -213,3 +257,19 @@ Measured on the development machine (Windows 11, local backend, Ollama `qwen3:8b
 - **Language model output** is filtered but can still be unhelpful. The filter is conservative and
   sometimes rejects acceptable text (hence the retry).
 - **Upload rate:** upload endpoints have no rate limiting.
+
+## 13. Troubleshooting
+
+- **The upload dialog shows "Processing Pipeline … Processing failed. Please try again."**
+  That dialog belongs to the pre-Phase-7A frontend. It posted the upload as JSON
+  (`JSON.stringify(FormData)` is `"{}"`), which the API rejects with 422 `body.file: Field required`
+  before anything is stored. Reload the page (Ctrl+Shift+R) so the browser loads the current
+  frontend; a tab opened before the update can keep running the old bundle. The current dialog
+  lists stages as Upload / Extract text / OCR fallback / Extract structured data / Save report.
+- **"AI summary unavailable".** The report is still processed; only the summary is missing.
+  - Ollama handles one request at a time. Another application sending it long prompts will make
+    HoloMed's request wait and time out after `TEXT_AI_TIMEOUT_SECONDS` (default 90). Check
+    `%LOCALAPPDATA%\Ollama\server.log`.
+  - A very large context (for example 40,960 tokens) plus the preloaded vision model can push
+    `qwen3:8b` partly onto the CPU (~2 tokens/s), or make model loading fail on an 8 GB GPU.
+  - Retry when Ollama is idle.

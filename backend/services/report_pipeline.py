@@ -12,10 +12,12 @@ as completed.
 import json
 import logging
 import time
+import traceback
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, delete, select
 
 from ..models import ExtractedMeasurement, MedicalMeasurement, Report, ReportExtraction, ReportSummary, \
@@ -34,6 +36,14 @@ CONFIRMED = "confirmed"
 COMPLETED = "completed"
 FAILED = "failed"
 LEGACY_READY = "ready"
+
+# Processing stages recorded on ReportExtraction.stage
+STAGE_UPLOAD = "upload"
+STAGE_TEXT = "text_extraction"
+STAGE_OCR = "ocr"
+STAGE_STRUCTURED = "structured_extraction"
+STAGE_SAVE = "save"
+STAGE_DONE = "done"
 
 STALE_PROCESSING = timedelta(minutes=10)
 
@@ -60,7 +70,10 @@ ERROR_MESSAGES = {
     "no_text_found": "No readable text was found in the document.",
     "file_missing": "The stored original could not be found.",
     "interrupted": "Processing was interrupted. Retry to process the document again.",
-    "internal_error": "The document could not be processed.",
+    "structured_extraction_failed": ("The report text was extracted, but structured measurements could not be "
+                                     "created. You can retry processing."),
+    "persistence_failed": "The results could not be saved. You can retry processing.",
+    "internal_error": "The document could not be processed. You can retry processing.",
 }
 
 
@@ -87,6 +100,8 @@ def start(session: Session, report: Report) -> ReportExtraction:
     if extraction is None:
         extraction = ReportExtraction(report_id=report.id, owner_id=report.owner_id)
     extraction.status = PROCESSING
+    extraction.stage = STAGE_TEXT
+    extraction.method = "none"
     extraction.error_code = None
     extraction.updated_at = _now()
     session.add(extraction)
@@ -99,85 +114,178 @@ def start(session: Session, report: Report) -> ReportExtraction:
     return extraction
 
 
-def _fail(session: Session, report: Report, extraction: ReportExtraction, code: str, timings: dict):
+def _log_crash(what: str, report_id: int, exc: BaseException) -> None:
+    """Log an unexpected error with its stack frames but without the exception message,
+    which may quote document content."""
+    frames = "".join(traceback.format_tb(exc.__traceback__))
+    logger.error("%s crashed report=%s error=%s\n%s", what, report_id, type(exc).__name__, frames)
+
+
+def _set_stage(session: Session, extraction: ReportExtraction, stage: str, **fields) -> None:
+    extraction.stage = stage
+    for key, value in fields.items():
+        setattr(extraction, key, value)
+    extraction.updated_at = _now()
+    session.add(extraction)
+    session.commit()
+
+
+def _fail(session: Session, report: Report, extraction: ReportExtraction, code: str, timings: dict,
+          stage: Optional[str] = None):
     extraction.status = FAILED
+    extraction.stage = stage or extraction.stage
     extraction.error_code = code
     extraction.timings = json.dumps(timings)
     extraction.updated_at = _now()
     report.status = FAILED
     session.add(extraction)
     session.add(report)
-    log_action(session, report.owner_id, "report_extraction_failed", {"report_id": report.id, "error": code})
+    log_action(session, report.owner_id, "report_extraction_failed",
+               {"report_id": report.id, "error": code, "stage": extraction.stage})
     session.commit()
-    logger.info("Report extraction failed report=%s code=%s", report.id, code)
+    logger.warning("Report processing failed report=%s stage=%s code=%s", report.id, extraction.stage, code)
 
 
 def process(engine: Engine, report_id: int) -> None:
-    """Run extraction + parsing for one report (called as a background task)."""
+    """Run text extraction -> structured extraction -> save for one report (background task).
+
+    Each stage is recorded on the extraction row so the UI can show real progress; a failure
+    records the stage that failed. AI summaries are not part of ingestion.
+    """
     started = time.perf_counter()
+
+    def elapsed() -> float:
+        return round((time.perf_counter() - started) * 1000, 1)
+
     with Session(engine) as session:
         report = session.get(Report, report_id)
         extraction = get_extraction(session, report_id)
         if report is None or extraction is None:
             return
+        _set_stage(session, extraction, STAGE_TEXT)
+
+        # 1. Text extraction (OCR fallback only for pages without a text layer)
         data = retrieve_file(report.storage_key, report.storage_provider)
         if not data:
-            _fail(session, report, extraction, "file_missing", {})
+            _fail(session, report, extraction, "file_missing", {}, STAGE_TEXT)
             return
         try:
-            result = document_extraction.extract_text(data)
+            result = document_extraction.extract_text(
+                data, on_ocr_start=lambda: _set_stage(session, extraction, STAGE_OCR, method="ocr"))
         except document_extraction.ExtractionError as exc:
-            _fail(session, report, extraction, exc.code,
-                  {"total_ms": round((time.perf_counter() - started) * 1000, 1)})
+            ocr_stage = exc.code == "ocr_unavailable" or extraction.stage == STAGE_OCR
+            _fail(session, report, extraction, exc.code, {"total_ms": elapsed()},
+                  STAGE_OCR if ocr_stage else STAGE_TEXT)
             return
-        except Exception:  # never leave a report stuck in "processing"
-            logger.exception("Report extraction crashed report=%s", report_id)
-            _fail(session, report, extraction, "internal_error", {})
+        except Exception as exc:  # never leave a report stuck in "processing"
+            _log_crash("Text extraction", report_id, exc)
+            _fail(session, report, extraction, "internal_error", {"total_ms": elapsed()})
             return
-
-        t_parse = time.perf_counter()
-        parsed = lab_parser.parse_report_text(result.text, ocr=result.method != "pdf_text")
         timings = dict(result.timings)
+        # Keep the extracted text even if a later stage fails, so the user can still read it.
+        _set_stage(session, extraction, STAGE_STRUCTURED, method=result.method, quality=result.quality,
+                   page_count=result.page_count, char_count=len(result.text), text=result.text,
+                   warnings=json.dumps(result.warnings))
+
+        # 2. Structured extraction (deterministic parser)
+        t_parse = time.perf_counter()
+        try:
+            parsed = lab_parser.parse_report_text(result.text, ocr=result.method != "pdf_text")
+        except Exception as exc:
+            _log_crash("Structured extraction", report_id, exc)
+            timings["total_ms"] = elapsed()
+            _fail(session, report, extraction, "structured_extraction_failed", timings, STAGE_STRUCTURED)
+            return
         timings["parse_ms"] = round((time.perf_counter() - t_parse) * 1000, 1)
+        _set_stage(session, extraction, STAGE_SAVE)
 
-        confirmed_keys = {
-            (c.test_name.lower(), c.value_text) for c in session.exec(
-                select(ExtractedMeasurement).where(ExtractedMeasurement.report_id == report_id,
-                                                   ExtractedMeasurement.measurement_id.is_not(None)))
-        }
-        added = 0
-        for cand in parsed.candidates:
-            if (cand.test_name.lower(), cand.value_text) in confirmed_keys:
-                continue
-            session.add(ExtractedMeasurement(report_id=report_id, owner_id=report.owner_id, **vars(cand)))
-            added += 1
+        # 3. Save candidates and results
+        try:
+            confirmed_keys = {
+                (c.test_name.lower(), c.value_text) for c in session.exec(
+                    select(ExtractedMeasurement).where(ExtractedMeasurement.report_id == report_id,
+                                                       ExtractedMeasurement.measurement_id.is_not(None)))
+            }
+            added = 0
+            for cand in parsed.candidates:
+                if (cand.test_name.lower(), cand.value_text) in confirmed_keys:
+                    continue
+                session.add(ExtractedMeasurement(report_id=report_id, owner_id=report.owner_id, **vars(cand)))
+                added += 1
 
-        warnings = list(result.warnings)
-        if report.type in LAB_TYPES or added:
-            warnings += parsed.warnings
-        extraction.status = "succeeded"
-        extraction.method = result.method
-        extraction.quality = result.quality
-        extraction.page_count = result.page_count
-        extraction.char_count = len(result.text)
-        extraction.text = result.text
-        extraction.document_date = parsed.document_date
-        extraction.warnings = json.dumps(warnings)
-        timings["total_ms"] = round((time.perf_counter() - started) * 1000, 1)
-        extraction.timings = json.dumps(timings)
-        extraction.updated_at = _now()
-        if parsed.document_date and "T" in (report.report_date or ""):
-            # The upload time was only a placeholder; show the date printed in the document
-            # (the user still confirms or corrects it during review).
-            report.report_date = parsed.document_date
-        report.status = NEEDS_REVIEW if added else EXTRACTED
-        session.add(extraction)
-        session.add(report)
-        log_action(session, report.owner_id, "report_extraction_completed",
-                   {"report_id": report_id, "method": result.method, "candidates": added})
-        session.commit()
+            warnings = list(result.warnings)
+            if report.type in LAB_TYPES or added:
+                warnings += parsed.warnings
+            extraction.status = "succeeded"
+            extraction.stage = STAGE_DONE
+            extraction.document_date = parsed.document_date
+            extraction.warnings = json.dumps(warnings)
+            timings["total_ms"] = elapsed()
+            extraction.timings = json.dumps(timings)
+            extraction.updated_at = _now()
+            if parsed.document_date and "T" in (report.report_date or ""):
+                # The upload time was only a placeholder; show the date printed in the document
+                # (the user still confirms or corrects it during review).
+                report.report_date = parsed.document_date
+            report.status = NEEDS_REVIEW if added else EXTRACTED
+            session.add(extraction)
+            session.add(report)
+            log_action(session, report.owner_id, "report_extraction_completed",
+                       {"report_id": report_id, "method": result.method, "candidates": added})
+            session.commit()
+        except SQLAlchemyError as exc:
+            session.rollback()
+            _log_crash("Saving extraction results", report_id, exc)
+            report = session.get(Report, report_id)
+            extraction = get_extraction(session, report_id)
+            _fail(session, report, extraction, "persistence_failed", {"total_ms": elapsed()}, STAGE_SAVE)
+            return
         logger.info("Report extraction ok report=%s method=%s pages=%d candidates=%d ms=%.0f",
                     report_id, result.method, result.page_count, added, timings["total_ms"])
+
+
+STAGE_LABELS = [
+    (STAGE_UPLOAD, "Upload"),
+    (STAGE_TEXT, "Extract text"),
+    (STAGE_OCR, "OCR fallback"),
+    (STAGE_STRUCTURED, "Extract structured data"),
+    (STAGE_SAVE, "Save report"),
+]
+
+
+def stages(extraction: Optional[ReportExtraction], candidate_count: int = 0) -> List[dict]:
+    """Per-stage state for the UI: pending | active | completed | skipped | failed | not_reached."""
+    keys = [k for k, _ in STAGE_LABELS]
+    out = [{"key": k, "label": label, "state": "pending", "detail": None} for k, label in STAGE_LABELS]
+    by_key = {s["key"]: s for s in out}
+    by_key[STAGE_UPLOAD]["state"] = "completed"
+    if extraction is None:
+        return out
+    ocr_used = extraction.method in ("ocr", "pdf_text+ocr")
+    current = extraction.stage or STAGE_TEXT
+    if extraction.status == "succeeded" or current == STAGE_DONE:
+        current_index = len(keys)
+    else:
+        current_index = keys.index(current) if current in keys else 1
+    for i, key in enumerate(keys[1:], start=1):
+        row = by_key[key]
+        if i < current_index:
+            row["state"] = "skipped" if key == STAGE_OCR and not ocr_used else "completed"
+        elif i == current_index:
+            row["state"] = "failed" if extraction.status == FAILED else "active"
+        else:
+            row["state"] = "not_reached" if extraction.status == FAILED else "pending"
+    if by_key[STAGE_OCR]["state"] == "skipped":
+        by_key[STAGE_OCR]["detail"] = "Not required: the PDF has a text layer"
+    if extraction.status == "succeeded":
+        by_key[STAGE_TEXT]["detail"] = f"{extraction.page_count} page(s)"
+        by_key[STAGE_STRUCTURED]["detail"] = (f"{candidate_count} value(s) found" if candidate_count
+                                              else "No laboratory values recognised")
+    if extraction.status == FAILED:
+        failed_key = keys[current_index] if current_index < len(keys) else STAGE_TEXT
+        by_key[failed_key]["detail"] = ERROR_MESSAGES.get(extraction.error_code or "",
+                                                          ERROR_MESSAGES["internal_error"])
+    return out
 
 
 def confirm(session: Session, report: Report, report_date: date) -> int:

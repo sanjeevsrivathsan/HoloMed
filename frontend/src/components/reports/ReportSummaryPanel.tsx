@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FileSearch, Loader2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/States';
 import { SafetyNotice } from '@/components/SafetyNotice';
 import { summaryModeLabels } from '@/lib/demo-data';
 import { AI_SAFETY_MESSAGE, errorMessage, isProcessing, isReviewable, reportsApi } from '@/lib/reports';
+import { aiSummaryAvailability, type TextAiState } from '@/lib/processingStages';
+import { ApiError } from '@/lib/api';
 import type { Report, SummaryMode } from '@/lib/types';
 
 const MODES: SummaryMode[] = ['quick', 'standard', 'detailed', 'clinical', 'custom'];
@@ -29,6 +31,15 @@ export function ReportSummaryPanel({ report, onGenerated }: ReportSummaryPanelPr
   const [custom, setCustom] = useState<string[]>(SECTION_CHOICES.map((s) => s.key));
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
   const [error, setError] = useState<{ reportId: string; text: string } | null>(null);
+  const [textAi, setTextAi] = useState<TextAiState | null | undefined>(undefined);
+
+  useEffect(() => {
+    let stale = false;   // ignore a slow response for a previously selected report
+    reportsApi.textAiStatus()
+      .then((s) => { if (!stale) setTextAi(s.status); })
+      .catch(() => { if (!stale) setTextAi(null); });
+    return () => { stale = true; };
+  }, [report?.id]);
 
   if (!report) {
     return <EmptyState title="No report selected" description="Select a report to view its AI summary." icon={<Sparkles className="h-6 w-6" />} />;
@@ -44,13 +55,21 @@ export function ReportSummaryPanel({ report, onGenerated }: ReportSummaryPanelPr
       await reportsApi.summarize(report.id, mode);
       await onGenerated();
     } catch (err) {
-      setError({ reportId: report.id, text: errorMessage(err, 'The summary could not be generated. Please try again.') });
+      const unavailable = err instanceof ApiError && err.status === 503;
+      if (unavailable) setTextAi('not_running');
+      setError({
+        reportId: report.id,
+        text: unavailable
+          ? 'AI summary unavailable: the text AI service is not running. The report is processed and your confirmed values are saved.'
+          : errorMessage(err, 'The summary could not be generated. Please try again.'),
+      });
     } finally {
       setGeneratingFor(null);
     }
   };
 
   const summary = report.summary;
+  const ai = textAi === undefined ? null : aiSummaryAvailability(textAi);
   const visibleKeys = mode === 'custom' ? custom : null;
   const sections = (summary?.sections ?? []).filter((s) => s.visible && (!visibleKeys || visibleKeys.includes(s.key)));
 
@@ -68,6 +87,14 @@ export function ReportSummaryPanel({ report, onGenerated }: ReportSummaryPanelPr
         />
       ) : (
         <>
+          <div className="rounded-lg bg-success-50 px-3 py-2 text-xs text-success-700 dark:bg-success-700/10 dark:text-green-400" data-testid="report-processed">
+            Report processed{report.measurementCount ? ` · ${report.measurementCount} confirmed value(s) saved` : ''}
+          </div>
+          {ai && ai.available === false && (
+            <p className="rounded-lg border border-amber-200 bg-warning-50 px-3 py-2 text-xs text-amber-800 dark:border-warning-700/30 dark:bg-warning-700/10 dark:text-amber-300" data-testid="summary-unavailable">
+              {ai.message}
+            </p>
+          )}
           <div>
             <p className="mb-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-400">Summary mode</p>
             <div className="flex flex-wrap gap-1.5">

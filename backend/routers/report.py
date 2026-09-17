@@ -243,8 +243,11 @@ def _extraction_read(session: Session, report_id: int) -> ReportExtractionRead:
     if extraction.error_code:
         warnings = [pipeline.ERROR_MESSAGES.get(extraction.error_code, pipeline.ERROR_MESSAGES["internal_error"])] \
             + warnings
+    open_candidates = sum(1 for c in candidates if c.review_status != "rejected")
     return ReportExtractionRead(
-        report_id=report_id, status=extraction.status, method=extraction.method, quality=extraction.quality,
+        report_id=report_id, status=extraction.status, stage=extraction.stage,
+        stages=pipeline.stages(extraction, open_candidates),
+        method=extraction.method, quality=extraction.quality,
         page_count=extraction.page_count, char_count=extraction.char_count, text=extraction.text,
         document_date=extraction.document_date, error_code=extraction.error_code, warnings=warnings,
         timings=json.loads(extraction.timings or "{}"),

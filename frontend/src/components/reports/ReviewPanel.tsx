@@ -93,7 +93,7 @@ export function ReviewPanel({ report, extraction, onExtractionChange, onConfirme
       {extraction.warnings.length > 0 && (
         <ul className="space-y-1" data-testid="extraction-warnings">
           {extraction.warnings.map((w) => (
-            <li key={w} className="flex items-start gap-1.5 text-xs text-warning-700 dark:text-warning-400">
+            <li key={w} className="flex items-start gap-1.5 text-xs text-warning-700 dark:text-amber-400">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{w}
             </li>
           ))}

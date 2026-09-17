@@ -5,6 +5,7 @@
  */
 import { api, ApiError } from '@/lib/api';
 import type { MeasurementFlag, ReportStatus, ReportSummary, SummaryMode } from '@/lib/types';
+import type { ProcessingStage, TextAiState } from '@/lib/processingStages';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 
@@ -40,6 +41,9 @@ export interface ExtractedCandidate {
 export interface ReportExtraction {
   report_id: number;
   status: 'pending' | 'processing' | 'succeeded' | 'failed';
+  /** Last stage entered (on failure: the stage that failed). */
+  stage: string | null;
+  stages: ProcessingStage[];
   method: 'pdf_text' | 'ocr' | 'pdf_text+ocr' | 'none';
   quality: 'good' | 'low' | 'unknown';
   page_count: number;
@@ -170,6 +174,7 @@ export const reportsApi = {
     return api.postMultipart<unknown>(`/api/v1/reports/${id}/summary`, form);
   },
   remove: (id: string) => api.delete<unknown>(`/api/v1/reports/${id}`),
+  textAiStatus: () => api.get<{ provider: string; model: string | null; status: TextAiState }>('/api/v1/ai/status'),
   demoStatus: () => api.get<{ loaded: boolean; report_count: number }>('/api/v1/demo'),
   loadDemo: () => api.postEmpty<{ loaded: boolean; report_ids: number[] }>('/api/v1/demo/load'),
   clearDemo: () => api.delete<{ loaded: boolean; removed: number }>('/api/v1/demo'),

@@ -12,7 +12,7 @@ import io
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 logger = logging.getLogger(__name__)
 # pypdf reports structural problems through its own logger; keep that quiet (codes are recorded instead).
@@ -102,7 +102,7 @@ def _ocr_image(image) -> str:
     return "\n".join(lines)
 
 
-def _pdf_extract(data: bytes, result_timings: dict) -> ExtractionResult:
+def _pdf_extract(data: bytes, result_timings: dict, on_ocr_start: Optional[Callable[[], None]]) -> ExtractionResult:
     from pypdf import PdfReader
     from pypdf.errors import PdfReadError
 
@@ -137,6 +137,8 @@ def _pdf_extract(data: bytes, result_timings: dict) -> ExtractionResult:
     method = "pdf_text"
     if scanned:
         if ocr_available():
+            if on_ocr_start:
+                on_ocr_start()
             t1 = time.perf_counter()
             import pypdfium2 as pdfium
             doc = pdfium.PdfDocument(data)
@@ -160,10 +162,12 @@ def _pdf_extract(data: bytes, result_timings: dict) -> ExtractionResult:
                             warnings=warnings, timings=result_timings)
 
 
-def _image_extract(data: bytes, timings: dict) -> ExtractionResult:
+def _image_extract(data: bytes, timings: dict, on_ocr_start: Optional[Callable[[], None]]) -> ExtractionResult:
     if not ocr_available():
         raise ExtractionError("ocr_unavailable")
     from PIL import Image, UnidentifiedImageError
+    if on_ocr_start:
+        on_ocr_start()
     t0 = time.perf_counter()
     try:
         image = Image.open(io.BytesIO(data))
@@ -179,14 +183,15 @@ def _image_extract(data: bytes, timings: dict) -> ExtractionResult:
                             timings=timings)
 
 
-def extract_text(data: bytes) -> ExtractionResult:
+def extract_text(data: bytes, on_ocr_start: Optional[Callable[[], None]] = None) -> ExtractionResult:
+    """Extract text; ``on_ocr_start`` is called before OCR runs (OCR is used only when needed)."""
     fmt = detect_format(data)
     timings: dict = {}
     started = time.perf_counter()
     if fmt == "pdf":
-        result = _pdf_extract(data, timings)
+        result = _pdf_extract(data, timings, on_ocr_start)
     elif fmt in ("png", "jpeg"):
-        result = _image_extract(data, timings)
+        result = _image_extract(data, timings, on_ocr_start)
     else:
         raise ExtractionError("unsupported_format")
     result.timings["extraction_total_ms"] = round((time.perf_counter() - started) * 1000, 1)

@@ -19,6 +19,9 @@ class ReportExtraction(SQLModel, table=True):
     owner_id: int = Field(foreign_key="user.id", index=True)
     # pending | processing | succeeded | failed
     status: str = Field(default="pending")
+    # last stage entered: text_extraction | ocr | structured_extraction | save | done
+    # (on failure: the stage that failed)
+    stage: Optional[str] = None
     # pdf_text | ocr | pdf_text+ocr | none
     method: str = Field(default="none")
     # good | low | unknown  (low = OCR or sparse text; review carefully)
@@ -72,9 +75,18 @@ class ExtractedMeasurementRead(SQLModel):
     measurement_id: Optional[int] = None
 
 
+class ProcessingStage(SQLModel):
+    key: str
+    label: str
+    state: str          # pending | active | completed | skipped | failed | not_reached
+    detail: Optional[str] = None
+
+
 class ReportExtractionRead(SQLModel):
     report_id: int
     status: str
+    stage: Optional[str] = None
+    stages: List[ProcessingStage] = []
     method: str
     quality: str
     page_count: int

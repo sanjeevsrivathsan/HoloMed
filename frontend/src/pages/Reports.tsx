@@ -11,6 +11,8 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/States';
 import { UploadReportDialog } from '@/components/reports/UploadReportDialog';
 import { ReviewPanel } from '@/components/reports/ReviewPanel';
 import { ReportSummaryPanel } from '@/components/reports/ReportSummaryPanel';
+import { ProcessingStagesList } from '@/components/reports/ProcessingStagesList';
+import { failureMessage, uploadStages } from '@/lib/processingStages';
 import {
   DEMO_SOURCE, errorMessage, extractionMethodLabels, flagLabels, flagVariant, formatBytes, isProcessing, isReviewable,
   reportStatusLabels, reportsApi, statusVariant, type ReportCapabilities, type ReportExtraction,
@@ -91,7 +93,12 @@ export function Reports({
   useEffect(() => {
     setExtraction((prev) => (prev && String(prev.report_id) === report?.id ? prev : null));
     setExtractionError(null);
-    if (report && !isProcessing(report.status) && report.status !== 'ready') void loadExtraction(report.id);
+    if (!report || report.status === 'ready') return;
+    void loadExtraction(report.id);
+    if (!isProcessing(report.status)) return;
+    // While processing, follow the server-reported stages.
+    const timer = window.setInterval(() => { void loadExtraction(report.id); }, 1000);
+    return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusKey, loadExtraction]);
 
@@ -114,7 +121,10 @@ export function Reports({
   };
 
   const isImage = report?.mimeType?.startsWith('image/');
-  const failure = extraction?.status === 'failed' ? extraction.warnings[0] : null;
+  const currentExtraction = extraction && String(extraction.report_id) === report?.id ? extraction : null;
+  const liveStages = currentExtraction?.stages?.length ? currentExtraction.stages : uploadStages('server');
+  const failure = currentExtraction?.status === 'failed' ? failureMessage(currentExtraction.stages) : null;
+  const failedTextAvailable = report?.status === 'failed' && !!currentExtraction?.text;
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:h-[calc(100vh-5rem)]">
@@ -211,16 +221,24 @@ export function Reports({
               />
               <div className="flex-1 overflow-y-auto p-4">
                 {isProcessing(report.status) && activeTab !== 'original' && activeTab !== 'details' ? (
-                  <LoadingState message="Extracting text from the document (OCR is used for scanned pages)…" />
-                ) : report.status === 'failed' && activeTab !== 'original' ? (
-                  <div data-testid="report-failed">
-                    <ErrorState
-                      title="This document could not be processed"
-                      message={failure ?? extractionError ?? 'Processing failed.'}
-                      onRetry={retrying ? undefined : retry}
-                    />
-                    {retrying && <LoadingState message="Retrying…" />}
-                    <p className="text-center text-xs text-neutral-400">The original file is kept unchanged and can still be opened.</p>
+                  <div className="space-y-3 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800" data-testid="report-processing">
+                    <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Processing this document…</p>
+                    <ProcessingStagesList stages={liveStages} />
+                  </div>
+                ) : report.status === 'failed' && activeTab !== 'original' && !(activeTab === 'text' && failedTextAvailable) ? (
+                  <div className="space-y-3 rounded-lg border border-red-200 p-4 dark:border-red-700/40" data-testid="report-failed" role="alert">
+                    <p className="text-sm font-semibold text-error-700 dark:text-red-400">Processing failed</p>
+                    {currentExtraction && <ProcessingStagesList stages={currentExtraction.stages} />}
+                    <p className="text-xs text-error-600">{failure ?? extractionError ?? 'The document could not be processed. You can retry processing.'}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="sm" onClick={retry} disabled={retrying} data-testid="report-retry">
+                        {retrying ? 'Retrying…' : 'Retry processing'}
+                      </Button>
+                      {failedTextAvailable && (
+                        <Button size="sm" variant="ghost" onClick={() => setActiveTab('text')}>View extracted text</Button>
+                      )}
+                    </div>
+                    <p className="text-xs text-neutral-400">The original file is kept unchanged and can still be opened.</p>
                   </div>
                 ) : (
                   <>
@@ -299,7 +317,6 @@ export function Reports({
         onClose={() => setUploadOpen(false)}
         capabilities={capabilities}
         capabilitiesError={capabilitiesError}
-        reports={reports}
         onUploaded={async (id) => { onSelectReport(id); await onRefresh(); }}
         onReviewReport={(id) => { onSelectReport(id); setActiveTab('values'); }}
       />

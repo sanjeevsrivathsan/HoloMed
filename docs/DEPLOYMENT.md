@@ -149,12 +149,14 @@ cd frontend && npm install && npm run dev      # http://127.0.0.1:5173
 ```bash
 .venv/Scripts/python -m pytest backend/tests                        # full backend suite
 HOLOMED_LIVE_OLLAMA=1 .venv/Scripts/python -m pytest backend/tests -k live   # opt-in live Ollama test
-cd frontend && npm run typecheck && npm run build
+cd frontend && npm run typecheck && npm test && npm run build   # npm test: processing-stage logic (node --test)
 ```
 
 Medical report ingestion (upload, extraction, review, summaries, demo data) is described in
 [`MEDICAL_REPORTS.md`](MEDICAL_REPORTS.md). Database changes for it are in Alembic revision
-`7a1c2e3d4f50`. The backend also creates missing tables at startup.
+`7a1c2e3d4f50` and `7a2b3c4d5e60`. The backend creates missing tables at startup and logs an error
+if existing tables lack model columns; run `alembic upgrade head` in that case (see
+MEDICAL_REPORTS.md § 2).
 
 ## 5. Optional: deploy the vision worker on Modal
 

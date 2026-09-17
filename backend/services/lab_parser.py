@@ -37,6 +37,15 @@ ANALYTES: List[Tuple[str, str]] = [
 ]
 _ANALYTE_RES = [(name, re.compile(pat + r"$", re.I)) for name, pat in ANALYTES]
 
+
+def _compact(pat: str) -> str:
+    """Same pattern without whitespace, for OCR output that drops spaces ("FastingBloodGlucose")."""
+    return re.sub(r"\\s[+?*]", "", pat).replace(r"[\s-]?", "-?").replace(r"[\s-]", "-?")
+
+
+_ANALYTE_RES_COMPACT = [(name, re.compile(r"(?:serum|plasma)?" + _compact(pat) + r"$", re.I))
+                        for name, pat in ANALYTES]
+
 # Units a canonical analyte is usually reported in, with loose plausibility bounds
 # (used only to lower confidence on likely OCR/parse errors, never to flag results).
 PLAUSIBLE = {
@@ -71,7 +80,7 @@ _LINE_RE = re.compile(
     rf"(?P<flag2>{_FLAG_TOKEN})?\s*$",
     re.I,
 )
-_BP_RE = re.compile(r"\b(?:blood\s+pressure|b\.?p\.?)\b\s*[:\-]?\s*(\d{2,3})\s*/\s*(\d{2,3})\s*(mm\s?hg)?", re.I)
+_BP_RE = re.compile(r"\b(?:blood\s*pressure|b\.?p\.?)\b\s*[:\-]?\s*(\d{2,3})\s*/\s*(\d{2,3})\s*(mm\s?hg)?", re.I)
 _PAGE_RE = re.compile(r"^--- Page (\d+) ---$")
 
 _STOP_NAMES = re.compile(
@@ -117,6 +126,10 @@ def canonical_name(source_name: str) -> Optional[str]:
     cleaned = _clean_name(source_name)
     for name, rx in _ANALYTE_RES:
         if rx.match(cleaned):
+            return name
+    compact = re.sub(r"\s+", "", cleaned)
+    for name, rx in _ANALYTE_RES_COMPACT:
+        if rx.match(compact):
             return name
     return None
 
@@ -196,13 +209,15 @@ def _parse_line(line: str, page: Optional[int]) -> List[Candidate]:
 _MONTHS = {m: i for i, m in enumerate(
     ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], start=1)}
 _DATE_LABEL = re.compile(
-    r"(?P<label>collect(?:ed|ion)(?:\s+(?:date|on))?|sample\s+(?:date|drawn|collected)|"
-    r"report(?:ed)?\s*(?:date|on)|date\s+of\s+(?:report|collection)|test\s+date|date)\s*[:\-]?\s*(?P<rest>.+)",
+    r"(?P<label>collect(?:ed|ion)(?:\s*(?:date|on))?|sample\s*(?:date|drawn|collected)|"
+    r"report(?:ed)?\s*(?:date|on)|date\s*of\s*(?:report|collection)|test\s*date|date)\s*[:\-]?\s*(?P<rest>.+)",
     re.I,
 )
-_ISO = re.compile(r"\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b")
-_NUMERIC = re.compile(r"\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})\b")
-_DMY_TEXT = re.compile(r"\b(\d{1,2})[\s\-]+([A-Za-z]{3,9})[\s\-,]+(\d{4})\b")
+# A date may be glued to a following time in OCR output ("02-Sep-202608:15").
+_END = r"(?=\d{1,2}:\d{2}|\b)"
+_ISO = re.compile(r"\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})" + _END)
+_NUMERIC = re.compile(r"\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})" + _END)
+_DMY_TEXT = re.compile(r"\b(\d{1,2})[\s\-]+([A-Za-z]{3,9})[\s\-,]+(\d{4})" + _END)
 _MDY_TEXT = re.compile(r"\b([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})\b")
 
 
