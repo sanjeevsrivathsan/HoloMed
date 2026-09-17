@@ -7,11 +7,3 @@ export const summaryModeLabels: Record<string, string> = {
   custom: 'Custom',
 };
 
-export const reportStatusLabels: Record<string, string> = {
-  ready: 'Ready',
-  processing: 'Processing',
-  extracting: 'Extracting',
-  ocr: 'OCR Fallback',
-  failed: 'Failed',
-  uploading: 'Uploading',
-};

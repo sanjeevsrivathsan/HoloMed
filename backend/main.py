@@ -92,6 +92,8 @@ app.include_router(storage_connection.router)
 app.include_router(search.router)
 from .routers import vision
 app.include_router(vision.router)
+from .routers import demo
+app.include_router(demo.router)
 import sys
 from fastapi import Depends
 from backend.dependencies import auth as auth_dep

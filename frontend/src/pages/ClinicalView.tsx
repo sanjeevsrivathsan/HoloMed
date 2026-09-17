@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
-import { Stethoscope, TrendingUp, TrendingDown, Minus, Sparkles, FileText, ScanLine } from 'lucide-react';
+import { Stethoscope, ArrowUp, ArrowDown, Minus, Sparkles, FileText, ScanLine } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SafetyNotice } from '@/components/SafetyNotice';
 import { EmptyState } from '@/components/States';
+import { AI_SAFETY_MESSAGE, DEMO_SOURCE, flagLabels, flagVariant, reportStatusLabels } from '@/lib/reports';
 import type { Report, MedicalMeasurement, ImagingStudy } from '@/lib/types';
 
 interface ClinicalViewProps {
@@ -11,9 +12,10 @@ interface ClinicalViewProps {
   measurements: MedicalMeasurement[];
   studies: ImagingStudy[];
   onOpenImaging: () => void;
+  onOpenReport: (reportId: string) => void;
 }
 
-export function ClinicalView({ report, measurements, studies, onOpenImaging }: ClinicalViewProps) {
+export function ClinicalView({ report, measurements, studies, onOpenImaging, onOpenReport }: ClinicalViewProps) {
   const reportMeasurements = useMemo(() => {
     if (!report) return [];
     return measurements.filter((m) => m.reportId === report.id);
@@ -21,8 +23,9 @@ export function ClinicalView({ report, measurements, studies, onOpenImaging }: C
 
   const previousMeasurements = useMemo(() => {
     if (!report) return [];
-    const reportDate = report.date;
+    const reportDate = report.date.slice(0, 10);
     return measurements.filter((m) =>
+      m.reportId !== report.id &&
       m.reportDate < reportDate &&
       reportMeasurements.some((rm) => rm.testName === m.testName)
     );
@@ -35,19 +38,17 @@ export function ClinicalView({ report, measurements, studies, onOpenImaging }: C
     return prev;
   };
 
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
-  const flagVariant = (flag: string) => {
-    if (flag === 'normal') return 'success';
-    if (flag === 'high' || flag === 'low' || flag === 'abnormal') return 'warning';
-    return 'neutral';
+  const formatDate = (d: string) => {
+    const date = new Date(d.length === 10 ? `${d}T00:00:00` : d);
+    return Number.isNaN(date.getTime()) ? d : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  const changeIcon = (current: number, previous: number | undefined) => {
-    if (previous === undefined) return <Minus className="h-3.5 w-3.5 text-neutral-400" />;
-    if (current > previous) return <TrendingUp className="h-3.5 w-3.5 text-warning-600" />;
-    if (current < previous) return <TrendingDown className="h-3.5 w-3.5 text-success-600" />;
-    return <Minus className="h-3.5 w-3.5 text-neutral-400" />;
+  // Direction only; no colour judgement about whether a change is good or bad.
+  const changeIcon = (current: number, previous: number | undefined, sameUnit: boolean) => {
+    if (previous === undefined || !sameUnit) return <Minus className="mx-auto h-3.5 w-3.5 text-neutral-400" aria-label="No comparison" />;
+    if (current > previous) return <ArrowUp className="mx-auto h-3.5 w-3.5 text-neutral-600 dark:text-neutral-300" aria-label="Higher than previous" />;
+    if (current < previous) return <ArrowDown className="mx-auto h-3.5 w-3.5 text-neutral-600 dark:text-neutral-300" aria-label="Lower than previous" />;
+    return <Minus className="mx-auto h-3.5 w-3.5 text-neutral-400" aria-label="Unchanged" />;
   };
 
   if (!report) {
@@ -65,16 +66,22 @@ export function ClinicalView({ report, measurements, studies, onOpenImaging }: C
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-bold text-neutral-900 dark:text-white">{report.title}</h2>
           </div>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">{report.type} · {report.source} · {formatDate(report.date)}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{report.type} · {report.source} · {formatDate(report.date)} · {reportStatusLabels[report.status]}</p>
+          {report.source === DEMO_SOURCE && (
+            <p className="mt-1 text-xs font-medium text-neutral-500">DEMONSTRATION DATA — synthetic document, not a real patient record.</p>
+          )}
         </div>
+        <button onClick={() => onOpenReport(report.id)} className="btn btn-secondary px-3 py-1.5 text-xs" data-testid="clinical-open-report">
+          <FileText className="h-3.5 w-3.5" /> Open source report
+        </button>
       </div>
 
       {/* Structured Measurements Table */}
       <Card>
-        <CardHeader title="Structured Measurements" subtitle="Current vs previous values with trends" icon={<Stethoscope className="h-4.5 w-4.5" />} />
+        <CardHeader title="Structured Measurements" subtitle="Values confirmed during review, with the previous confirmed value for each test" icon={<Stethoscope className="h-4.5 w-4.5" />} />
         <div className="overflow-x-auto">
           {reportMeasurements.length === 0 ? (
-            <EmptyState title="No measurements" description="This report has no structured measurement data." />
+            <EmptyState title="No measurements" description="No values have been confirmed for this report. Review it in the Reports workspace." />
           ) : (
             <table className="w-full text-sm">
               <thead>
@@ -84,8 +91,9 @@ export function ClinicalView({ report, measurements, studies, onOpenImaging }: C
                   <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Previous</th>
                   <th className="px-3 py-2 text-center text-xs font-medium text-neutral-500">Change</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Unit</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Ref Range</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Flag</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Printed range</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Printed flag</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Source</th>
                 </tr>
               </thead>
               <tbody>
@@ -95,11 +103,14 @@ export function ClinicalView({ report, measurements, studies, onOpenImaging }: C
                     <tr key={m.id} className="border-b border-neutral-100 dark:border-neutral-800/50">
                       <td className="px-3 py-2.5 text-xs font-medium text-neutral-700 dark:text-neutral-300">{m.testName}</td>
                       <td className="px-3 py-2.5 text-right text-xs font-semibold text-neutral-900 dark:text-neutral-100">{m.value}</td>
-                      <td className="px-3 py-2.5 text-right text-xs text-neutral-400">{prev?.value ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-center">{changeIcon(m.value, prev?.value)}</td>
+                      <td className="px-3 py-2.5 text-right text-xs text-neutral-400">
+                        {prev ? <>{prev.value}{prev.unit !== m.unit && ` ${prev.unit}`}<span className="block text-[10px]">{formatDate(prev.reportDate)}</span></> : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">{changeIcon(m.value, prev?.value, !prev || prev.unit === m.unit)}</td>
                       <td className="px-3 py-2.5 text-xs text-neutral-400">{m.unit}</td>
-                      <td className="px-3 py-2.5 text-xs text-neutral-400">{m.referenceRange || 'No source range'}</td>
-                      <td className="px-3 py-2.5"><StatusBadge variant={flagVariant(m.flag)}>{m.flag}</StatusBadge></td>
+                      <td className="px-3 py-2.5 text-xs text-neutral-400">{m.referenceRange || 'Not printed'}</td>
+                      <td className="px-3 py-2.5"><StatusBadge variant={flagVariant(m.flag)}>{flagLabels[m.flag] ?? m.flag}</StatusBadge></td>
+                      <td className="px-3 py-2.5 text-xs text-neutral-400">{m.sourceLocation || '—'}</td>
                     </tr>
                   );
                 })}
@@ -114,19 +125,21 @@ export function ClinicalView({ report, measurements, studies, onOpenImaging }: C
         <Card className="border-teal-300 dark:border-teal-700/50">
           <CardHeader
             title="AI Explanation"
-            subtitle="AI-generated summary — visually distinct from source clinical data"
+            subtitle="AI-generated — visually distinct from source clinical data"
             icon={<Sparkles className="h-4.5 w-4.5" />}
           />
           <div className="space-y-3 p-5">
             <div className="rounded-lg bg-teal-50/50 p-3 dark:bg-teal-950/10">
-              <p className="mb-1 text-xs font-semibold text-teal-600 dark:text-teal-400">Executive Summary</p>
-              <p className="text-sm text-neutral-700 dark:text-neutral-300">{report.summary.sections.find((s) => s.key === 'executive')?.content}</p>
+              <p className="mb-1 text-xs font-semibold text-teal-600 dark:text-teal-400">Overview</p>
+              <p className="text-sm text-neutral-700 dark:text-neutral-300">{report.summary.sections.find((s) => s.key === 'executive')?.content ?? 'Not included in this summary mode.'}</p>
             </div>
-            <div className="rounded-lg bg-teal-50/50 p-3 dark:bg-teal-950/10">
-              <p className="mb-1 text-xs font-semibold text-teal-600 dark:text-teal-400">Important Findings</p>
-              <p className="text-sm text-neutral-700 dark:text-neutral-300">{report.summary.sections.find((s) => s.key === 'findings')?.content}</p>
-            </div>
-            <SafetyNotice variant="compact" />
+            {report.summary.sections.find((s) => s.key === 'abnormal') && (
+              <div className="rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/40">
+                <p className="mb-1 text-xs font-semibold text-neutral-600 dark:text-neutral-300">Results flagged in the report (from confirmed data)</p>
+                <p className="whitespace-pre-line text-sm text-neutral-700 dark:text-neutral-300">{report.summary.sections.find((s) => s.key === 'abnormal')?.content}</p>
+              </div>
+            )}
+            <SafetyNotice message={report.summary.safetyMessage ?? AI_SAFETY_MESSAGE} />
           </div>
         </Card>
       )}
@@ -147,11 +160,12 @@ export function ClinicalView({ report, measurements, studies, onOpenImaging }: C
             </div>
           </div>
           <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-            <p className="mb-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Artifacts</p>
-            <div className="flex flex-wrap gap-2">
-              {report.artifacts.map((a) => (
-                <StatusBadge key={a.id} variant="neutral">{a.type.replace(/_/g, ' ')}</StatusBadge>
-              ))}
+            <p className="mb-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Source document</p>
+            <div className="flex flex-wrap gap-2 text-xs text-neutral-600 dark:text-neutral-300">
+              <StatusBadge variant="neutral">Original {report.mimeType === 'application/pdf' ? 'PDF' : 'image'} · stored unchanged</StatusBadge>
+              {report.extractionStatus === 'succeeded' && <StatusBadge variant="neutral">Extracted text (derived)</StatusBadge>}
+              {reportMeasurements.length > 0 && <StatusBadge variant="neutral">{reportMeasurements.length} confirmed value(s)</StatusBadge>}
+              {report.summary && <StatusBadge variant="neutral">AI summary (derived)</StatusBadge>}
             </div>
           </div>
         </div>

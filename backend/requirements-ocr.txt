@@ -1,0 +1,6 @@
+# Optional OCR for scanned PDFs and PNG/JPEG medical reports (runs locally on CPU).
+# Without these packages HoloMed accepts only PDFs and reports pages without a text layer as unreadable.
+#   pip install -r backend/requirements-ocr.txt
+pypdfium2==5.13.0
+rapidocr-onnxruntime==1.4.4
+onnxruntime==1.30.0

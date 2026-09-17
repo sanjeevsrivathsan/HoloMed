@@ -16,6 +16,10 @@ python-jose[cryptography]==3.3.0
 google-auth==2.58.0
 passlib[argon2]==1.7.4
 
+# Medical report ingestion: PDF text-layer extraction (pure Python).
+# Optional OCR for scanned PDFs and PNG/JPEG reports: pip install -r backend/requirements-ocr.txt
+pypdf==6.19.0
+
 # Vision AI service (backend/services/vision): chest radiograph screening model.
 # torch/torchvision are the CUDA 12.4 builds validated in Phases 1-3 (2.6.0+cu124 / 0.21.0+cu124).
 # No matplotlib: rendering uses numpy + Pillow. Grad-CAM is implemented in-house.

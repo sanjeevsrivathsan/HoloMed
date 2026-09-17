@@ -11,6 +11,8 @@ from .consent import ConsentRecord, ConsentRead, ConsentCreate
 from .storage_connection import StorageConnection, StorageConnectionRead, StorageConnectionCreate
 from .report_summary import ReportSummary, ReportSummaryRead, ReportSummaryCreate
 from .source_reference import SourceReference
+from .report_extraction import (ExtractedMeasurement, ExtractedMeasurementRead, ReportExtraction,
+                                ReportExtractionRead)
 
 __all__ = [
     "User",
@@ -37,4 +39,9 @@ __all__ = [
     "ReportSummary",
     "ReportSummaryRead",
     "ReportSummaryCreate",
+    "SourceReference",
+    "ReportExtraction",
+    "ReportExtractionRead",
+    "ExtractedMeasurement",
+    "ExtractedMeasurementRead",
 ]

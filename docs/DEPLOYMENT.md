@@ -118,13 +118,16 @@ Prerequisites:
 python -m venv .venv
 .venv/Scripts/python -m pip install -r backend/requirements.txt     # Windows path; use .venv/bin on Linux/macOS
 
+# 1b. Optional OCR for scanned PDFs and PNG/JPEG medical reports (CPU)
+.venv/Scripts/python -m pip install -r backend/requirements-ocr.txt
+
 # 2. Model weights
 #    download + verify per backend/models/weights/README.md
 
 # 3. Configuration
 cp .env.example .env        # then set JWT_SECRET (and others as needed)
 
-# 4. Text AI (optional; screening works without it)
+# 4. Text AI (optional; screening and report review work without it; needed for AI summaries)
 ollama pull qwen3:8b
 
 # 5. Backend (run from the repository root; it serves /ohif from frontend/ohif)
@@ -139,6 +142,7 @@ cd frontend && npm install && npm run dev      # http://127.0.0.1:5173
 |---|---|
 | `GET /api/v1/health` | Application up |
 | `GET /api/v1/ready` | Database reachable |
+| `GET /api/v1/ai/status` | Text AI `{provider, model, status}` with status `connected`, `not_running`, `model_missing`, `configured` or `not_configured`. No URLs or keys. |
 | `GET /api/v1/vision/status` | `{provider, provider_configured, model_ready, accelerator, status}` with status `ready`, `loading`, `standby` or `unavailable`. Contains no URLs, device names, paths or credentials. |
 
 ### Tests
@@ -147,6 +151,10 @@ cd frontend && npm install && npm run dev      # http://127.0.0.1:5173
 HOLOMED_LIVE_OLLAMA=1 .venv/Scripts/python -m pytest backend/tests -k live   # opt-in live Ollama test
 cd frontend && npm run typecheck && npm run build
 ```
+
+Medical report ingestion (upload, extraction, review, summaries, demo data) is described in
+[`MEDICAL_REPORTS.md`](MEDICAL_REPORTS.md). Database changes for it are in Alembic revision
+`7a1c2e3d4f50`. The backend also creates missing tables at startup.
 
 ## 5. Optional: deploy the vision worker on Modal
 

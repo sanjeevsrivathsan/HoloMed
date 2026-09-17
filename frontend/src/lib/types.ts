@@ -3,12 +3,23 @@ export type Role = 'patient' | 'clinician' | 'administrator';
 export type AppTheme = 'system' | 'light' | 'dark';
 export type ImagingTheme = 'follow' | 'dark' | 'light';
 
-export type ReportStatus = 'ready' | 'processing' | 'extracting' | 'ocr' | 'failed' | 'uploading';
+/** Report lifecycle (backend). 'ready' is the legacy name for completed. */
+export type ReportStatus =
+  | 'uploaded'
+  | 'processing'
+  | 'extracted'
+  | 'needs_review'
+  | 'confirmed'
+  | 'completed'
+  | 'failed'
+  | 'ready';
 export type ReportType =
   | 'Blood Test'
   | 'Imaging Report'
-  | 'Pathology'
   | 'Discharge Summary'
+  | 'Clinical Note'
+  | 'Prescription'
+  | 'Pathology'
   | 'Consultation'
   | 'Operative Report'
   | 'Other';
@@ -79,6 +90,8 @@ export interface ReportSummary {
   mode: SummaryMode;
   sections: ReportSummarySection[];
   createdAt: string;
+  /** Mandatory notice returned by the backend with every AI summary. */
+  safetyMessage?: string;
 }
 
 export interface Report {
@@ -95,6 +108,15 @@ export interface Report {
   status: ReportStatus;
   artifacts: ReportArtifact[];
   summary?: ReportSummary;
+  originalFilename?: string;
+  mimeType?: string;
+  fileSize?: number;
+  uploadedAt?: string;
+  extractionStatus?: string | null;
+  /** Extracted values not rejected during review. */
+  candidateCount?: number;
+  /** Confirmed canonical measurements linked to this report. */
+  measurementCount?: number;
 }
 
 export interface ImagingStudy {

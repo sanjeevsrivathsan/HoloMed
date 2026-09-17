@@ -2,20 +2,34 @@ import { useState, useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend,
 } from 'recharts';
-import { Activity, Calendar, TrendingUp, Info } from 'lucide-react';
+import { Activity, Calendar, TrendingUp, Info, ExternalLink } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
 import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/States';
+import { flagLabels, flagVariant } from '@/lib/reports';
 import type { MedicalMeasurement, Report } from '@/lib/types';
 
 interface HealthTimelineProps {
   measurements: MedicalMeasurement[];
   reports: Report[];
+  onOpenReport: (reportId: string) => void;
+}
+
+/** Bounds of a reference range exactly as printed ("4.0 - 5.6", "<100", ">40"); nothing is inferred. */
+function printedBounds(range?: string): { lower?: number; upper?: number } {
+  if (!range) return {};
+  const between = range.match(/(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)/);
+  if (between) return { lower: parseFloat(between[1]), upper: parseFloat(between[2]) };
+  const upper = range.match(/^\s*[<≤]=?\s*(\d+(?:\.\d+)?)/);
+  if (upper) return { upper: parseFloat(upper[1]) };
+  const lower = range.match(/^\s*[>≥]=?\s*(\d+(?:\.\d+)?)/);
+  if (lower) return { lower: parseFloat(lower[1]) };
+  return {};
 }
 
 const availableMetrics = ['HbA1c', 'LDL', 'HDL', 'Hemoglobin', 'WBC', 'Glucose (fasting)', 'Creatinine', 'Blood Pressure (systolic)', 'Blood Pressure (diastolic)'];
 
-export function HealthTimeline({ measurements, reports }: HealthTimelineProps) {
+export function HealthTimeline({ measurements, reports, onOpenReport }: HealthTimelineProps) {
   const [selectedMetric, setSelectedMetric] = useState('HbA1c');
   const [compareMetric, setCompareMetric] = useState('none');
 
@@ -51,14 +65,11 @@ export function HealthTimeline({ measurements, reports }: HealthTimelineProps) {
 
   const refRange = currentMetric?.referenceRange;
   const hasSourceRange = !!refRange;
+  const bounds = printedBounds(refRange);
+  const units = new Set(metricData.map((m) => m.unit));
+  const mixedUnits = units.size > 1;
 
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
-  const flagVariant = (flag: string) => {
-    if (flag === 'normal') return 'success';
-    if (flag === 'high' || flag === 'low' || flag === 'abnormal') return 'warning';
-    return 'neutral';
-  };
+  const formatDate = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   const reportMap = useMemo(() => {
     const map = new Map<string, Report>();
@@ -119,20 +130,20 @@ export function HealthTimeline({ measurements, reports }: HealthTimelineProps) {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-neutral-200 dark:text-neutral-800" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="currentColor" className="text-neutral-400" tickFormatter={(v) => new Date(v).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })} />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="currentColor" className="text-neutral-400" tickFormatter={(v) => new Date(`${v}T00:00:00`).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })} />
                 <YAxis tick={{ fontSize: 11 }} stroke="currentColor" className="text-neutral-400" />
                 <Tooltip
                   contentStyle={{ borderRadius: 8, border: '1px solid', fontSize: 12 }}
                   labelFormatter={(v) => formatDate(v as string)}
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                {hasSourceRange && refRange && refRange.includes('–') && (
-                  <ReferenceLine
-                    y={parseFloat(refRange.split('–')[1])}
-                    stroke="#f59e0b"
-                    strokeDasharray="4 4"
-                    label={{ value: 'Upper ref', fontSize: 10, fill: '#f59e0b' }}
-                  />
+                {bounds.upper !== undefined && (
+                  <ReferenceLine y={bounds.upper} stroke="#f59e0b" strokeDasharray="4 4"
+                    label={{ value: 'Printed upper limit (latest report)', fontSize: 10, fill: '#f59e0b' }} />
+                )}
+                {bounds.lower !== undefined && (
+                  <ReferenceLine y={bounds.lower} stroke="#f59e0b" strokeDasharray="4 4"
+                    label={{ value: 'Printed lower limit (latest report)', fontSize: 10, fill: '#f59e0b' }} />
                 )}
                 <Line type="monotone" dataKey={selectedMetric} stroke="#14b8a6" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                 {compareMetric !== 'none' && (
@@ -142,10 +153,16 @@ export function HealthTimeline({ measurements, reports }: HealthTimelineProps) {
             </ResponsiveContainer>
           )}
         </div>
+        {mixedUnits && (
+          <div className="flex items-center gap-2 px-5 pb-2 text-xs text-warning-700 dark:text-warning-400">
+            <Info className="h-3.5 w-3.5" />
+            These results use different units ({Array.from(units).join(', ')}). Values are shown as reported and are not converted.
+          </div>
+        )}
         {!hasSourceRange && metricData.length > 0 && (
           <div className="flex items-center gap-2 px-5 pb-4 text-xs text-neutral-400">
             <Info className="h-3.5 w-3.5" />
-            No source range available for this measurement. Values shown without reference context.
+            The latest report does not print a reference range for this test. Values are shown without reference context.
           </div>
         )}
       </Card>
@@ -158,7 +175,7 @@ export function HealthTimeline({ measurements, reports }: HealthTimelineProps) {
             {currentMetric ? (
               <>
                 <p className="mt-1 text-2xl font-bold text-neutral-900 dark:text-white">{currentMetric.value} <span className="text-sm font-normal text-neutral-400">{currentMetric.unit}</span></p>
-                <StatusBadge variant={flagVariant(currentMetric.flag)}>{currentMetric.flag}</StatusBadge>
+                <StatusBadge variant={flagVariant(currentMetric.flag)}>{flagLabels[currentMetric.flag] ?? currentMetric.flag}</StatusBadge>
               </>
             ) : <p className="mt-1 text-sm text-neutral-400">No data</p>}
           </div>
@@ -169,7 +186,7 @@ export function HealthTimeline({ measurements, reports }: HealthTimelineProps) {
             {previousMetric ? (
               <>
                 <p className="mt-1 text-2xl font-bold text-neutral-900 dark:text-white">{previousMetric.value} <span className="text-sm font-normal text-neutral-400">{previousMetric.unit}</span></p>
-                <StatusBadge variant={flagVariant(previousMetric.flag)}>{previousMetric.flag}</StatusBadge>
+                <StatusBadge variant={flagVariant(previousMetric.flag)}>{flagLabels[previousMetric.flag] ?? previousMetric.flag}</StatusBadge>
               </>
             ) : <p className="mt-1 text-sm text-neutral-400">No previous data</p>}
           </div>
@@ -178,9 +195,12 @@ export function HealthTimeline({ measurements, reports }: HealthTimelineProps) {
           <div className="p-5">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">Change</p>
             {change !== null ? (
-              <p className={`mt-1 text-2xl font-bold ${change > 0 ? 'text-warning-600' : change < 0 ? 'text-success-600' : 'text-neutral-500'}`}>
-                {change > 0 ? '+' : ''}{change.toFixed(1)} <span className="text-sm font-normal text-neutral-400">{currentMetric?.unit}</span>
-              </p>
+              <>
+                <p className="mt-1 text-2xl font-bold text-neutral-900 dark:text-white">
+                  {change > 0 ? '+' : ''}{Number(change.toFixed(2))} <span className="text-sm font-normal text-neutral-400">{currentMetric?.unit}</span>
+                </p>
+                <p className="text-xs text-neutral-400">{mixedUnits ? 'Units differ — compare with care' : 'Difference between the two latest results'}</p>
+              </>
             ) : <p className="mt-1 text-sm text-neutral-400">No comparison available</p>}
           </div>
         </Card>
@@ -213,10 +233,17 @@ export function HealthTimeline({ measurements, reports }: HealthTimelineProps) {
                       <td className="px-3 py-2 text-xs text-neutral-700 dark:text-neutral-300">{formatDate(m.reportDate)}</td>
                       <td className="px-3 py-2 text-right text-xs font-medium text-neutral-900 dark:text-neutral-100">{m.value}</td>
                       <td className="px-3 py-2 text-xs text-neutral-400">{m.unit}</td>
-                      <td className="px-3 py-2 text-xs text-neutral-400">{m.referenceRange || 'No source range available'}</td>
-                      <td className="px-3 py-2"><StatusBadge variant={flagVariant(m.flag)}>{m.flag}</StatusBadge></td>
-                      <td className="px-3 py-2 text-xs text-neutral-400">{m.laboratory || m.hospital || 'N/A'}</td>
-                      <td className="px-3 py-2 text-xs text-teal-600 dark:text-teal-400">{report?.title || m.reportId}</td>
+                      <td className="px-3 py-2 text-xs text-neutral-400">{m.referenceRange || 'Not printed'}</td>
+                      <td className="px-3 py-2"><StatusBadge variant={flagVariant(m.flag)}>{flagLabels[m.flag] ?? m.flag}</StatusBadge></td>
+                      <td className="px-3 py-2 text-xs text-neutral-400">{[m.laboratory || m.hospital, m.sourceLocation].filter(Boolean).join(' · ') || '—'}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {report ? (
+                          <button onClick={() => onOpenReport(report.id)} data-testid="timeline-source-link"
+                            className="inline-flex items-center gap-1 text-teal-600 hover:underline dark:text-teal-400">
+                            {report.title}<ExternalLink className="h-3 w-3" />
+                          </button>
+                        ) : <span className="text-neutral-400">Entered manually</span>}
+                      </td>
                     </tr>
                   );
                 })}

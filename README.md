@@ -16,6 +16,13 @@ feature is **explainable chest X-ray screening assistance**:
 > clinically validated by HoloMed. Model scores are uncalibrated model outputs, not
 > probabilities of disease, and Grad-CAM is not proof of disease.
 
+HoloMed also ingests **medical reports** (blood tests first):
+upload PDF/PNG/JPEG → text extraction with OCR fallback → deterministic lab-value parsing →
+human review → canonical measurements used by the Health Timeline, Health Search, Clinical View
+and Overview → an optional, safety-checked AI summary. See
+[`docs/MEDICAL_REPORTS.md`](docs/MEDICAL_REPORTS.md). Opt-in synthetic demo data is available in
+Settings.
+
 ## Deployment modes
 
 - **Primary: local GPU hosting.** `VISION_PROVIDER=local` + `TEXT_AI_PROVIDER=ollama` runs
@@ -32,7 +39,8 @@ feature is **explainable chest X-ray screening assistance**:
 |---|---|
 | `backend/` | FastAPI API: auth, reports, DICOMweb, audit, vision service, explanation service |
 | `backend/services/vision/` | Model loading and hash check, preprocessing, inference, Grad-CAM, local/cloud providers |
-| `backend/services/explanation/`, `backend/services/text_ai/` | Safe text explanations (Ollama / OmniRoute) |
+| `backend/services/explanation/`, `backend/services/text_ai/` | Safe text explanations and report summaries (Ollama / OmniRoute) |
+| `backend/services/document_extraction.py`, `lab_parser.py`, `report_pipeline.py` | Report text extraction (pypdf, optional OCR), lab-value parsing, ingestion lifecycle |
 | `backend/vision_worker/`, `deploy/modal/` | Private GPU worker and its Modal deployment |
 | `frontend/` | React + Vite + Tailwind UI; `frontend/ohif/` is a prebuilt OHIF viewer (MIT) |
 | `docs/` | Validation, service and deployment documentation |
@@ -42,6 +50,7 @@ feature is **explainable chest X-ray screening assistance**:
 | Document | Covers |
 |---|---|
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Architecture, running locally, Modal deployment, environment variables, switching providers |
+| [`docs/MEDICAL_REPORTS.md`](docs/MEDICAL_REPORTS.md) | Report upload, extraction/OCR, review, canonical data, summaries, search, demo data |
 | [`docs/VISION_SERVICE.md`](docs/VISION_SERVICE.md) | Vision service design, API, safety language, performance, limitations |
 | [`docs/REAL_CXR_VALIDATION.md`](docs/REAL_CXR_VALIDATION.md) | Real chest X-ray validation methodology and results |
 | [`backend/models/weights/README.md`](backend/models/weights/README.md) | How to obtain and verify the model weights (not stored in Git) |
@@ -51,6 +60,7 @@ feature is **explainable chest X-ray screening assistance**:
 
 ```bash
 python -m venv .venv && .venv/Scripts/python -m pip install -r backend/requirements.txt
+.venv/Scripts/python -m pip install -r backend/requirements-ocr.txt   # optional: OCR for scanned reports
 # download and verify the weights (backend/models/weights/README.md); cp .env.example .env; set JWT_SECRET
 .venv/Scripts/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
 cd frontend && npm install && npm run dev

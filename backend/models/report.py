@@ -13,7 +13,7 @@ class Report(SQLModel, table=True):
     type: str = Field(default="Other")
     source: str = Field(default="Upload")
     report_date: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-    status: str = Field(default="ready")  # ready, processing, extracting, ocr, failed, uploading
+    status: str = Field(default="ready")  # uploaded, processing, extracted, needs_review, confirmed, completed, failed (legacy: ready)
     
     # Optional metadata
     hospital: Optional[str] = None
@@ -45,6 +45,5 @@ class ReportRead(SQLModel):
     original_filename: str
     mime_type: str
     file_size: int
-    storage_key: str
     storage_provider: str
     uploaded_at: datetime

@@ -22,3 +22,12 @@ def retrieve_file(storage_key: str, storage_provider: str = "local") -> Optional
         return None
     with open(file_path, "rb") as f:
         return f.read()
+
+
+def delete_file(storage_key: str, storage_provider: str = "local") -> None:
+    """Remove a stored file (used only for synthetic demo documents)."""
+    if storage_provider != "local":
+        raise NotImplementedError(f"Storage provider {storage_provider} not supported.")
+    file_path = os.path.join(STORAGE_DIR, os.path.basename(storage_key))
+    if os.path.isfile(file_path):
+        os.remove(file_path)

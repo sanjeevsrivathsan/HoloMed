@@ -4,8 +4,8 @@
  * Integration status per feature:
  *   ✅ Authentication    — real backend (AuthContext)
  *   ✅ Imaging studies   — fetched from GET /api/v1/dicomweb/studies (QIDO-RS)
- *   🔶 Reports          — demo data (no backend Report CRUD endpoint yet)
- *   🔶 Measurements     — demo data (no backend Measurements endpoint yet)
+ *   ✅ Reports          — /api/v1/reports (upload → extraction → review → summary)
+ *   ✅ Measurements     — /api/v1/measurements (values confirmed during report review)
  *   🔶 Templates        — local state (no backend Template endpoint yet)
  *   🔶 Consents/Audit   — demo data (no backend Consent/read-audit endpoint yet)
  *   🔶 Storage          — demo data (no backend Storage management endpoint yet)
@@ -23,7 +23,7 @@ import { Sidebar, type PageKey } from '@/components/Sidebar';
 import { Topbar } from '@/components/Topbar';
 import { ToastContainer } from '@/components/Toast';
 import { Dashboard } from '@/pages/Dashboard';
-import { Reports, type UploadStage } from '@/pages/Reports';
+import { Reports } from '@/pages/Reports';
 import { HealthSearch } from '@/pages/HealthSearch';
 import { HealthTimeline } from '@/pages/HealthTimeline';
 import { Imaging } from '@/pages/Imaging';
@@ -35,6 +35,84 @@ import { Settings } from '@/pages/Settings';
 
 import { api, ApiError, type StudyMeta, type PatientResponse } from '@/lib/api';
 import type { ImagingStudy, Template, Report, ReportStatus, AuditEvent, MedicalMeasurement, ConsentRecord, StorageConnection, SourceReference } from '@/lib/types';
+import { isProcessing, summaryFromBackend } from '@/lib/reports';
+
+const POLL_INTERVAL_MS = 1500;
+
+/** Backend timestamps are naive UTC. */
+const utc = (value: string | null | undefined) =>
+  value && !/[zZ]$|[+-]\d\d:\d\d$/.test(value) ? `${value}Z` : value ?? undefined;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function reportFromBackend(r: any): Report {
+  const id = String(r.id);
+  const summary = summaryFromBackend(id, r.summary);
+  return {
+    id,
+    patientId: String(r.patient_id),
+    title: r.title,
+    type: r.type,
+    source: r.source,
+    hospital: r.hospital ?? undefined,
+    laboratory: r.laboratory ?? undefined,
+    department: r.department ?? undefined,
+    doctor: r.doctor ?? undefined,
+    date: r.report_date,
+    status: r.status as ReportStatus,
+    artifacts: [],
+    summary: summary && { ...summary, createdAt: utc(summary.createdAt) ?? summary.createdAt },
+    originalFilename: r.original_filename,
+    mimeType: r.mime_type,
+    fileSize: r.file_size,
+    uploadedAt: utc(r.uploaded_at),
+    extractionStatus: r.extraction_status ?? null,
+    candidateCount: r.candidate_count ?? 0,
+    measurementCount: r.measurement_count ?? 0,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function measurementFromBackend(m: any): MedicalMeasurement {
+  return {
+    id: String(m.id),
+    reportId: m.report_id ? String(m.report_id) : '',
+    patientId: String(m.patient_id),
+    testName: m.test_name,
+    value: m.value,
+    unit: m.unit,
+    referenceRange: m.reference_range ?? undefined,
+    flag: m.flag,
+    reportDate: m.report_date,
+    hospital: m.hospital ?? undefined,
+    laboratory: m.laboratory ?? undefined,
+    department: m.department ?? undefined,
+    comments: m.comments ?? undefined,
+    sourceLocation: m.source_location ?? undefined,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sourceReferenceFromBackend(sr: any): SourceReference {
+  return {
+    id: String(sr.id),
+    reportId: String(sr.report_id),
+    label: 'Original document',
+    location: `Report #${sr.report_id} · stored unchanged`,
+    type: sr.type,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function auditFromBackend(log: any): AuditEvent {
+  return {
+    id: String(log.id),
+    patientId: String(log.user_id),
+    eventType: log.action.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+    description: log.details || 'No details provided',
+    timestamp: utc(log.timestamp) ?? log.timestamp,
+    actor: 'user',
+  };
+}
 
 // ── Map QIDO StudyMeta → frontend ImagingStudy shape ─────────────────────────
 
@@ -68,8 +146,6 @@ function Workspace() {
   const [reportsLoading, setReportsLoading] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [clinicalReportId, setClinicalReportId] = useState<string | null>(null);
-  const [uploadStage, setUploadStage] = useState<UploadStage | null>(null);
-  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 
   // ── Audit Logs (from backend) ──────────────────────────────────────────
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -106,34 +182,8 @@ function Workspace() {
       }
 
       // Fetch reports
-      const reportsData = await api.get<any[]>('/api/v1/reports');
-      const mappedReports: Report[] = reportsData.map(r => {
-        let summary;
-        if (r.summary) {
-          summary = {
-            id: String(r.summary.id),
-            reportId: String(r.id),
-            mode: r.summary.mode as any,
-            sections: typeof r.summary.sections === 'string' ? JSON.parse(r.summary.sections) : r.summary.sections,
-            createdAt: r.summary.created_at
-          };
-        }
-        return {
-          id: String(r.id),
-          patientId: String(r.patient_id),
-          title: r.title,
-          type: r.type as any,
-          source: r.source,
-          hospital: r.hospital,
-          laboratory: r.laboratory,
-          department: r.department,
-          doctor: r.doctor,
-          date: r.report_date,
-          status: r.status as ReportStatus,
-          artifacts: [],
-          summary
-        };
-      });
+      const reportsData = await api.get<unknown[]>('/api/v1/reports');
+      const mappedReports = reportsData.map(reportFromBackend);
       setReports(mappedReports);
       if (!selectedReportId && mappedReports.length > 0) {
         setSelectedReportId(mappedReports[0].id);
@@ -146,36 +196,12 @@ function Workspace() {
       }
 
       // Fetch audit logs
-      const auditData = await api.get<any[]>('/api/v1/audit');
-      const mappedAudit: AuditEvent[] = auditData.map(log => ({
-        id: String(log.id),
-        patientId: String(log.user_id),
-        eventType: log.action.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
-        description: log.details || 'No details provided',
-        timestamp: log.timestamp,
-        actor: 'user'
-      }));
-      setAuditEvents(mappedAudit);
+      const auditData = await api.get<unknown[]>('/api/v1/audit');
+      setAuditEvents(auditData.map(auditFromBackend));
 
       // Fetch measurements
-      const measData = await api.get<any[]>('/api/v1/measurements');
-      const mappedMeas: MedicalMeasurement[] = measData.map(m => ({
-        id: String(m.id),
-        reportId: m.report_id ? String(m.report_id) : '',
-        patientId: String(m.patient_id),
-        testName: m.test_name,
-        value: m.value,
-        unit: m.unit,
-        referenceRange: m.reference_range,
-        flag: m.flag,
-        reportDate: m.report_date,
-        hospital: m.hospital,
-        laboratory: m.laboratory,
-        department: m.department,
-        comments: m.comments,
-        sourceLocation: m.source_location
-      }));
-      setMeasurements(mappedMeas);
+      const measData = await api.get<unknown[]>('/api/v1/measurements');
+      setMeasurements(measData.map(measurementFromBackend));
 
       // Fetch templates
       const tmplData = await api.get<any[]>('/api/v1/templates');
@@ -215,15 +241,8 @@ function Workspace() {
       setStorageConnections(mappedStorage);
 
       // Fetch Source References
-      const srData = await api.get<any[]>('/api/v1/search/source-references');
-      const mappedSr: SourceReference[] = srData.map(sr => ({
-        id: String(sr.id),
-        reportId: String(sr.report_id),
-        label: sr.storage_provider || 'Document',
-        location: sr.storage_location || '',
-        type: sr.type as any
-      }));
-      setSourceReferences(mappedSr);
+      const srData = await api.get<unknown[]>('/api/v1/search/source-references');
+      setSourceReferences(srData.map(sourceReferenceFromBackend));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
       console.warn('[App] Could not load backend data:', err);
@@ -248,6 +267,42 @@ function Workspace() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
+  // Lightweight refresh of report-derived data (reports, measurements, sources, activity).
+  const refreshReports = useCallback(async () => {
+    try {
+      const [reportsData, measData, srData, auditData] = await Promise.all([
+        api.get<unknown[]>('/api/v1/reports'),
+        api.get<unknown[]>('/api/v1/measurements'),
+        api.get<unknown[]>('/api/v1/search/source-references'),
+        api.get<unknown[]>('/api/v1/audit'),
+      ]);
+      setReports(reportsData.map(reportFromBackend));
+      setMeasurements(measData.map(measurementFromBackend));
+      setSourceReferences(srData.map(sourceReferenceFromBackend));
+      setAuditEvents(auditData.map(auditFromBackend));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      console.warn('[App] Could not refresh reports');
+    }
+  }, []);
+
+  // Text AI availability for the sidebar indicator (no URLs or credentials).
+  const [textAiAvailable, setTextAiAvailable] = useState(false);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    api.get<{ status: string }>('/api/v1/ai/status')
+      .then((s) => setTextAiAvailable(s.status === 'connected' || s.status === 'configured'))
+      .catch(() => setTextAiAvailable(false));
+  }, [isAuthenticated, currentPage]);
+
+  // Poll while any document is still being processed.
+  const anyProcessing = reports.some((r) => isProcessing(r.status));
+  useEffect(() => {
+    if (!isAuthenticated || !anyProcessing) return;
+    const timer = window.setInterval(() => { void refreshReports(); }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [isAuthenticated, anyProcessing, refreshReports]);
+
   // ── Navigation handlers ──────────────────────────────────────────────────
   const handleNavigate = useCallback((page: PageKey) => {
     setCurrentPage(page);
@@ -263,39 +318,6 @@ function Workspace() {
     setClinicalReportId(reportId);
     setCurrentPage('clinical');
   }, []);
-
-  // ── Report upload (real API) ─────────
-  const handleUpload = useCallback(async (file: File, _storage: string) => {
-    setUploadStage('uploading');
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('title', file.name);
-      
-      await api.post<any>('/api/v1/reports', formData);
-      await fetchBackendData();
-      setUploadStage('ready');
-      setTimeout(() => setUploadStage(null), 1000);
-    } catch (err) {
-      console.error('[App] Upload failed', err);
-      setUploadStage('failed');
-      setTimeout(() => setUploadStage(null), 2000);
-    }
-  }, [fetchBackendData]);
-
-  const handleGenerateSummary = async (reportId: string, mode: string) => {
-    setIsGeneratingSummary(true);
-    try {
-      const formData = new FormData();
-      formData.append('mode', mode);
-      await api.post<any>(`/api/v1/reports/${reportId}/summary`, formData);
-      await fetchBackendData(); // refresh reports to get the summary
-    } catch (err) {
-      console.error('[App] Failed to generate AI summary', err);
-    } finally {
-      setIsGeneratingSummary(false);
-    }
-  };
 
   // ── Template save (calls API) ─────────────────────────
   const handleSaveTemplate = useCallback(async (template: Template) => {
@@ -362,7 +384,7 @@ function Workspace() {
               onNavigate={handleNavigate}
               collapsed={false}
               onToggleCollapse={() => setMobileSidebarOpen(false)}
-              ollamaAvailable={false}
+              ollamaAvailable={textAiAvailable}
             />
           </div>
         </div>
@@ -375,7 +397,7 @@ function Workspace() {
           onNavigate={handleNavigate}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-          ollamaAvailable={false}
+          ollamaAvailable={textAiAvailable}
         />
       </div>
 
@@ -400,13 +422,12 @@ function Workspace() {
           {currentPage === 'reports' && (
             <Reports
               reports={reports}
+              measurements={measurements}
               selectedReportId={selectedReportId}
               onSelectReport={setSelectedReportId}
-              onUpload={handleUpload}
-              uploadStage={uploadStage}
+              onRefresh={refreshReports}
               onNavigateClinical={handleNavigateClinical}
-              onGenerateSummary={handleGenerateSummary}
-              isGeneratingSummary={isGeneratingSummary}
+              onNavigateTimeline={() => handleNavigate('timeline')}
             />
           )}
           {currentPage === 'search' && (
@@ -421,6 +442,7 @@ function Workspace() {
             <HealthTimeline
               measurements={measurements}
               reports={reports}
+              onOpenReport={handleOpenReport}
             />
           )}
           {currentPage === 'imaging' && (
@@ -444,6 +466,7 @@ function Workspace() {
               measurements={measurements}
               studies={studies}
               onOpenImaging={() => handleNavigate('imaging')}
+              onOpenReport={handleOpenReport}
             />
           )}
           {currentPage === 'privacy' && (
@@ -458,7 +481,7 @@ function Workspace() {
               storageConnections={storageConnections}
             />
           )}
-          {currentPage === 'settings' && <Settings />}
+          {currentPage === 'settings' && <Settings onDataChanged={refreshReports} />}
         </main>
       </div>
 
