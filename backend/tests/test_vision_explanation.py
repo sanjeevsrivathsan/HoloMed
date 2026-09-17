@@ -111,6 +111,8 @@ def test_malformed_completions_rejected(rec_id, raw):
     ("summary", "Effusion is not present according to the model."),
     ("summary", "The model ruled out pneumothorax."),
     ("summary", "The model assigned a score of 0.9100 to its Cardiomegaly output."),  # invented number
+    ("summary", "The score_position is below the operating point."),  # prompt field leak
+    ("clinical_review", "Take the tablets twice a day."),
 ])
 def test_unsafe_content_rejected(rec_id, field, text):
     with pytest.raises(ValueError, match="safety"):

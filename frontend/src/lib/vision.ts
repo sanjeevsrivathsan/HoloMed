@@ -79,6 +79,33 @@ export interface VisionScreenResponse {
   timing: VisionTiming;
   inferred_at: string;
   safety: VisionSafety;
+  /** Short-lived handle for requesting a text explanation of this result. */
+  result_id: string | null;
+}
+
+// ─── Text explanation (POST /api/v1/vision/explanations) ──────────────────────
+// Mirrors backend/services/explanation/cxr_explanation.py (TextExplanationResponse).
+
+export interface ExplanationSections {
+  summary: string;
+  finding_explanation: string;
+  score_explanation: string;
+  gradcam_explanation: string;
+  limitations: string[];
+  clinical_review: string;
+}
+
+export interface TextExplanationResponse {
+  result_id: string;
+  target_pathology: string;
+  model_score: number;
+  is_primary_finding: boolean;
+  source: 'language-model';
+  text_model: string;
+  generated_at: string;
+  cached: boolean;
+  explanation: ExplanationSections;
+  safety: VisionSafety;
 }
 
 /** A screening response plus the browser-measured round-trip time. */
@@ -180,6 +207,40 @@ export function describeScreeningError(err: unknown): ScreeningError {
     return { kind: 'network', title: 'Backend unreachable', message: 'Cannot reach the HoloMed backend. Check your connection and that the server is running, then try again.' };
   }
   return { kind: 'unknown', title: 'Screening failed', message: 'The screening request could not be completed. Please try again.' };
+}
+
+const EXPLANATION_TIMEOUT_MS = 120_000;
+
+/** Request a language-model explanation for one model output of a screening result. */
+export async function explainFinding(resultId: string, target: string): Promise<TextExplanationResponse> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), EXPLANATION_TIMEOUT_MS);
+  try {
+    return await api.post<TextExplanationResponse>(
+      '/api/v1/vision/explanations',
+      { result_id: resultId, target },
+      { signal: controller.signal },
+    );
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export const EXPLANATION_UNAVAILABLE_TEXT =
+  'AI explanation is temporarily unavailable. The screening result and visual explanation remain available for clinical review.';
+
+export function describeExplanationError(err: unknown): { message: string; retryable: boolean; auth: boolean } {
+  if (err instanceof ApiError && err.status === 401) {
+    return { message: 'Your session has ended. Please sign in again.', retryable: false, auth: true };
+  }
+  if (err instanceof ApiError && err.status === 404) {
+    return {
+      message: 'This screening result has expired. Run AI screening again to request an explanation.',
+      retryable: false,
+      auth: false,
+    };
+  }
+  return { message: EXPLANATION_UNAVAILABLE_TEXT, retryable: true, auth: false };
 }
 
 export function imageDataUrl(img: EncodedImage): string {

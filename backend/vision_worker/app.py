@@ -48,6 +48,9 @@ async def _read_limited(file: UploadFile, limit: int) -> bytes:
 
 
 def create_app() -> FastAPI:
+    from ..logger import configure_logger
+    configure_logger("holomed")
+    configure_logger("backend")
     app = FastAPI(title="HoloMed Vision Worker", docs_url=None, redoc_url=None, openapi_url=None)
     state = {"load_error": False}
 

@@ -19,8 +19,10 @@ import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SafetyNotice } from '@/components/SafetyNotice';
 import { useAuth } from '@/context/AuthContext';
+import { AiExplanationPanel, type ExplanationState } from '@/components/vision/AiExplanationPanel';
 import {
-  ACCEPT_ATTR, describeScreeningError, imageDataUrl, screenChestXray, validateUpload,
+  ACCEPT_ATTR, describeExplanationError, describeScreeningError, explainFinding, imageDataUrl,
+  screenChestXray, validateUpload,
   type DetectedFormat, type ScreeningError, type ScreeningRun, type VisionExplanation,
 } from '@/lib/vision';
 
@@ -66,6 +68,8 @@ export function ChestXrayScreening() {
   const [explanations, setExplanations] = useState<Record<string, { explanation: VisionExplanation; run: ScreeningRun }>>({});
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   const [explaining, setExplaining] = useState<string | null>(null);
+  // Language-model explanations per model output (loaded after the vision result).
+  const [aiExplanations, setAiExplanations] = useState<Record<string, ExplanationState>>({});
   const requestSeq = useRef(0);
 
   const [view, setView] = useState<ViewMode>('overlay');
@@ -81,9 +85,31 @@ export function ChestXrayScreening() {
     setRun(null);
     setError(null);
     setExplanations({});
+    setAiExplanations({});
     setSelectedTarget(null);
     setExplaining(null);
     setRunning(false);
+  };
+
+  // Text explanation for one model output of one screening result. Never blocks
+  // the vision result; failures only affect this panel.
+  const requestAiExplanation = async (target: string, resultId: string | null) => {
+    if (!resultId) {
+      setAiExplanations((prev) => ({ ...prev, [target]: { status: 'error', ...describeExplanationError(null) } }));
+      return;
+    }
+    const seq = requestSeq.current;
+    setAiExplanations((prev) => ({ ...prev, [target]: { status: 'loading' } }));
+    try {
+      const data = await explainFinding(resultId, target);
+      if (seq !== requestSeq.current) return;
+      if (data.target_pathology !== target) throw new Error('explanation target mismatch');
+      setAiExplanations((prev) => ({ ...prev, [target]: { status: 'ready', data } }));
+    } catch (err) {
+      if (seq !== requestSeq.current) return;
+      const { message, retryable } = describeExplanationError(err);
+      setAiExplanations((prev) => ({ ...prev, [target]: { status: 'error', message, retryable } }));
+    }
   };
 
   const handleFile = async (file: File | undefined) => {
@@ -116,6 +142,7 @@ export function ChestXrayScreening() {
     setError(null);
     setRun(null);
     setExplanations({});
+    setAiExplanations({});
     try {
       const result = await screenChestXray(selected.file);
       if (seq !== requestSeq.current) return;
@@ -124,6 +151,7 @@ export function ChestXrayScreening() {
       setExplanations({ [target]: { explanation: result.response.explanation, run: result } });
       setSelectedTarget(target);
       setView('overlay');
+      void requestAiExplanation(target, result.response.result_id);
     } catch (err) {
       if (seq !== requestSeq.current) return;
       setError(describeScreeningError(err));
@@ -143,6 +171,7 @@ export function ChestXrayScreening() {
       const result = await screenChestXray(selected.file, pathology);
       if (seq !== requestSeq.current) return;
       setExplanations((prev) => ({ ...prev, [pathology]: { explanation: result.response.explanation, run: result } }));
+      void requestAiExplanation(pathology, result.response.result_id);
     } catch (err) {
       if (seq !== requestSeq.current) return;
       setError(describeScreeningError(err));
@@ -400,7 +429,7 @@ export function ChestXrayScreening() {
             <Card>
               <CardHeader
                 title="AI Screening Results"
-                subtitle="Multi-label model output · 18 chest X-ray targets"
+                subtitle="Source: vision model (TorchXRayVision) · 18 chest X-ray targets"
                 icon={<Stethoscope className="h-4 w-4" />}
                 action={<StatusBadge variant="warning">Requires Clinical Review</StatusBadge>}
               />
@@ -471,6 +500,15 @@ export function ChestXrayScreening() {
                 </div>
               </div>
             </Card>
+          )}
+
+          {response && selectedTarget && explanations[selectedTarget] && (
+            <AiExplanationPanel
+              target={selectedTarget}
+              state={aiExplanations[selectedTarget]}
+              onRetry={() => void requestAiExplanation(
+                selectedTarget, explanations[selectedTarget].run.response.result_id)}
+            />
           )}
 
           {response && shownRun && (

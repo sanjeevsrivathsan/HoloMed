@@ -59,7 +59,8 @@ Additional rules:
 - limitations: 2-4 short, specific limitations of model-based screening.
 - clinical_review: why qualified clinical review of the image and context is required (1-2 sentences).
 - summary: 1-2 sentences. Start exactly with "The model assigned a score of <model_score> to its
-  <selected_model_output> output", then state score_position.
+  <selected_model_output> output", then say in plain words whether this is above or below the model's
+  operating point of 0.5000. Never mention input field names.
 Return only the JSON object."""
 
 RESPONSE_SCHEMA = {
@@ -93,6 +94,9 @@ _ALWAYS_BANNED = [
     ("dosing-advice", re.compile(r"\b(daily|once\s+a\s+day|twice\s+a\s+day|per\s+day|mg|mcg|tablets?|pills?|"
                                  r"capsules?|aspirin|ibuprofen|paracetamol|acetaminophen|steroids?|inhalers?|"
                                  r"oxygen\s+therapy)\b|\btake\s+(\w+\s+){0,2}(daily|once|twice|every)\b", re.I)),
+    ("field-name-leak", re.compile(r"\b(score_position|selected_model_output|model_output_type|"
+                                   r"is_primary_model_finding|highest_model_scores|explanation_method|"
+                                   r"requires_clinical_review|primary_model_finding)\b", re.I)),
     ("invented-patient-fact", re.compile(r"\b\d+[- ]year[- ]old\b|\bthe\s+patient'?s\s+(history|symptoms?|labs?)\b", re.I)),
     ("certainty", re.compile(r"\b(definitely|certainly|undoubtedly|clearly\s+shows)\b", re.I)),
     ("absence-claim", re.compile(r"\bnot\s+(considered\s+|likely\s+|be\s+|to\s+be\s+)?present\b|\bis\s+absent\b|"

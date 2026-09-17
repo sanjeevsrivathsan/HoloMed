@@ -65,8 +65,9 @@ export const api = {
   },
 
   /** POST with JSON body */
-  post<T>(path: string, body: unknown): Promise<T> {
+  post<T>(path: string, body: unknown, init: Pick<RequestInit, 'signal'> = {}): Promise<T> {
     return request<T>(path, {
+      ...init,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

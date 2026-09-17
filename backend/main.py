@@ -1,6 +1,8 @@
 import os
 from fastapi import FastAPI
 import logging
+from .logger import configure_logger
+configure_logger("backend")  # INFO-level, non-sensitive service logs (no images, tokens or identifiers)
 logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
