@@ -13,13 +13,10 @@ from ... import config
 from . import explainability
 from .model import (ARCHITECTURE, INPUT_SIZE, MODEL_NAME, WEIGHTS_ID, VisionModel,
                     get_vision_model)
+from .errors import UnknownTargetError  # noqa: F401  (re-exported)
 from .preprocessing import preprocess
 from .schemas import (EncodedImage, VisionExplanation, VisionFinding, VisionInputInfo,
                       VisionModelInfo, VisionScreenResponse, VisionTiming)
-
-
-class UnknownTargetError(ValueError):
-    """Requested Grad-CAM target is not one of the model outputs."""
 
 
 def _sync(device: torch.device) -> None:

@@ -18,24 +18,12 @@ import torch
 import torchxrayvision as xrv
 
 from ... import config
+from .constants import (  # noqa: F401  (re-exported)
+    ARCHITECTURE, EXPECTED_SHA256, EXPECTED_TARGETS, INPUT_SIZE, MODEL_NAME, WEIGHTS_ID,
+)
+from .errors import VisionModelError  # noqa: F401  (re-exported)
 
 logger = logging.getLogger(__name__)
-
-MODEL_NAME = "TorchXRayVision DenseNet-121"
-ARCHITECTURE = "DenseNet-121 (growth 32, blocks 6/12/24/16, 1 input channel, 18 outputs)"
-WEIGHTS_ID = "densenet121-res224-all"
-EXPECTED_SHA256 = "56524913dd16a906422e8d8b66a7a5c46be1d82eb7ac012d8103776f1aa68899"
-EXPECTED_TARGETS = [
-    "Atelectasis", "Consolidation", "Infiltration", "Pneumothorax", "Edema",
-    "Emphysema", "Fibrosis", "Effusion", "Pneumonia", "Pleural_Thickening",
-    "Cardiomegaly", "Nodule", "Mass", "Hernia", "Lung Lesion", "Fracture",
-    "Lung Opacity", "Enlarged Cardiomediastinum",
-]
-INPUT_SIZE = 224
-
-
-class VisionModelError(RuntimeError):
-    """The model cannot be made available (missing/altered checkpoint, bad device)."""
 
 
 def sha256_file(path: str) -> str:
@@ -153,6 +141,10 @@ def get_vision_model() -> VisionModel:
             if _instance is None:
                 _instance = load_model()
     return _instance
+
+
+def is_loaded() -> bool:
+    return _instance is not None
 
 
 def reset_vision_model() -> None:

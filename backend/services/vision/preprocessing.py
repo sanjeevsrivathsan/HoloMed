@@ -21,24 +21,13 @@ import torchxrayvision as xrv
 from PIL import Image, UnidentifiedImageError
 from pydicom.pixels import apply_modality_lut, apply_voi_lut
 
-from .model import INPUT_SIZE
+from .constants import INPUT_SIZE
+from .errors import InvalidImageError, UnsupportedImageError  # noqa: F401  (re-exported)
 
 # Chest radiograph modalities accepted for DICOM input (empty Modality is allowed).
 ALLOWED_DICOM_MODALITIES = {"CR", "DX"}
 MAX_PIXELS = 12000 * 12000
 MIN_SIDE = 64
-
-
-class InvalidImageError(ValueError):
-    """Input is corrupt, empty, or cannot be decoded (HTTP 400)."""
-
-
-class UnsupportedImageError(ValueError):
-    """Input is well-formed but not a supported type or radiograph (HTTP 415/422)."""
-
-    def __init__(self, message: str, media_type: bool = False):
-        super().__init__(message)
-        self.media_type = media_type
 
 
 @dataclass

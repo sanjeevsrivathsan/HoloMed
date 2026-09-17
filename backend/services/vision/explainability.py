@@ -16,7 +16,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-TARGET_LAYER = "features.denseblock4"
+from .constants import TARGET_LAYER  # noqa: F401  (re-exported)
 
 
 @dataclass

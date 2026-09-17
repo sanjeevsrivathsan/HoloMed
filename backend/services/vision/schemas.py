@@ -94,5 +94,8 @@ class VisionScreenResponse(BaseModel):
     timing: VisionTiming
     inferred_at: datetime
     safety: VisionSafety = Field(default_factory=VisionSafety)
+    result_id: Optional[str] = Field(
+        default=None,
+        description="Short-lived handle for requesting a text explanation of this result (set by the API)")
 
     model_config = {"protected_namespaces": ()}
