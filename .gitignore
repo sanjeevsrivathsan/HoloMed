@@ -24,7 +24,26 @@ backend/data/
 # Environment/secrets
 .env
 .env.*
+*.env
 !.env.example
+!**/.env.example
+.modal.toml
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+
+# Node
+node_modules/
+
+# Model weights (never commit binaries; see backend/models/weights/README.md)
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
 
 scratch/
 
