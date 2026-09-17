@@ -6,7 +6,6 @@ import { Card, CardHeader } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Modal } from '@/components/Modal';
-import { DemoDataBadge } from '@/components/DemoDataBadge';
 import { EmptyState } from '@/components/States';
 import type { ConsentRecord, AuditEvent, StorageConnection } from '@/lib/types';
 
@@ -41,7 +40,7 @@ export function PrivacyCenter({ consents, auditEvents, storageConnections }: Pri
     <div className="space-y-6">
       {/* Storage Connection Status */}
       <Card>
-        <CardHeader title="Storage Connection Status" subtitle="Where your data is stored" icon={<Lock className="h-4.5 w-4.5" />} action={<DemoDataBadge />} />
+        <CardHeader title="Storage Connection Status" subtitle="Where your data is stored" icon={<Lock className="h-4.5 w-4.5" />} />
         <div className="p-5">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {storageConnections.map((conn) => (

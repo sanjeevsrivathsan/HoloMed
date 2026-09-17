@@ -1,0 +1,133 @@
+{
+  "system": {
+    "python": "3.12.10",
+    "torch": "2.6.0+cu124",
+    "device": "cuda:0 (NVIDIA GeForce RTX 3070 Ti)",
+    "cpu": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD"
+  },
+  "model_load": {
+    "hash_and_deserialize_ms": 351.219,
+    "including_warm_up_ms": 907.862
+  },
+  "samples": {
+    "nih_png": {
+      "primary_finding": {
+        "pathology": "Cardiomegaly",
+        "score": 0.6600351333618164
+      },
+      "first_request_timing": {
+        "preprocessing_ms": 12.496,
+        "inference_ms": 15.666,
+        "gradcam_ms": 59.201,
+        "rendering_ms": 25.935,
+        "total_ms": 113.708
+      },
+      "service": {
+        "preprocessing_ms": {
+          "n": 50,
+          "median_ms": 5.921,
+          "p95_ms": 6.425,
+          "mean_ms": 5.821,
+          "max_ms": 7.143
+        },
+        "inference_ms": {
+          "n": 50,
+          "median_ms": 15.844,
+          "p95_ms": 18.23,
+          "mean_ms": 16.064,
+          "max_ms": 20.405
+        },
+        "gradcam_ms": {
+          "n": 50,
+          "median_ms": 40.891,
+          "p95_ms": 45.376,
+          "mean_ms": 41.013,
+          "max_ms": 47.475
+        },
+        "rendering_ms": {
+          "n": 50,
+          "median_ms": 23.881,
+          "p95_ms": 26.17,
+          "mean_ms": 23.736,
+          "max_ms": 26.727
+        },
+        "total_ms": {
+          "n": 50,
+          "median_ms": 86.531,
+          "p95_ms": 91.803,
+          "mean_ms": 86.989,
+          "max_ms": 97.698
+        }
+      },
+      "route_handler_wall": {
+        "n": 50,
+        "median_ms": 145.548,
+        "p95_ms": 161.519,
+        "mean_ms": 146.731,
+        "max_ms": 171.636
+      },
+      "response_json_kb": 556.1
+    },
+    "siim_dicom": {
+      "primary_finding": {
+        "pathology": "Mass",
+        "score": 0.5589016079902649
+      },
+      "first_request_timing": {
+        "preprocessing_ms": 21.626,
+        "inference_ms": 16.199,
+        "gradcam_ms": 41.493,
+        "rendering_ms": 100.184,
+        "total_ms": 179.936
+      },
+      "service": {
+        "preprocessing_ms": {
+          "n": 50,
+          "median_ms": 18.504,
+          "p95_ms": 22.756,
+          "mean_ms": 19.3,
+          "max_ms": 27.388
+        },
+        "inference_ms": {
+          "n": 50,
+          "median_ms": 16.096,
+          "p95_ms": 18.683,
+          "mean_ms": 16.386,
+          "max_ms": 19.436
+        },
+        "gradcam_ms": {
+          "n": 50,
+          "median_ms": 50.498,
+          "p95_ms": 56.897,
+          "mean_ms": 49.318,
+          "max_ms": 62.197
+        },
+        "rendering_ms": {
+          "n": 50,
+          "median_ms": 85.406,
+          "p95_ms": 102.469,
+          "mean_ms": 87.884,
+          "max_ms": 103.599
+        },
+        "total_ms": {
+          "n": 50,
+          "median_ms": 169.421,
+          "p95_ms": 196.717,
+          "mean_ms": 173.456,
+          "max_ms": 201.824
+        }
+      },
+      "route_handler_wall": {
+        "n": 50,
+        "median_ms": 228.143,
+        "p95_ms": 236.4,
+        "mean_ms": 227.882,
+        "max_ms": 238.148
+      },
+      "response_json_kb": 1852.5
+    }
+  },
+  "gpu_memory_after_load_mb": 43.25,
+  "gpu_peak_allocated_mb": 184.61,
+  "gpu_peak_reserved_mb": 210.0
+}

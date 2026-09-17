@@ -89,8 +89,9 @@ export const api = {
    * POST with multipart/form-data body (DICOM file upload).
    * Do NOT set Content-Type manually — the browser sets the boundary automatically.
    */
-  postMultipart<T>(path: string, form: FormData): Promise<T> {
+  postMultipart<T>(path: string, form: FormData, init: Pick<RequestInit, 'signal'> = {}): Promise<T> {
     return request<T>(path, {
+      ...init,
       method: 'POST',
       body: form,
     });

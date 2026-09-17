@@ -1,0 +1,224 @@
+I:\HoloMed\HoloMed-D\.venv\Lib\site-packages\torch\serialization.py:1580: SourceChangeWarning: source code of class 'torchxrayvision.models.DenseNet' has changed. you can retrieve the original source code by accessing the object's source attribute or set `torch.nn.Module.dump_patches = True` and use the patch tool to revert the changes.
+  warnings.warn(msg, SourceChangeWarning)
+I:\HoloMed\HoloMed-D\.venv\Lib\site-packages\torch\serialization.py:1580: SourceChangeWarning: source code of class 'torch.nn.modules.container.Sequential' has changed. you can retrieve the original source code by accessing the object's source attribute or set `torch.nn.Module.dump_patches = True` and use the patch tool to revert the changes.
+  warnings.warn(msg, SourceChangeWarning)
+I:\HoloMed\HoloMed-D\.venv\Lib\site-packages\torch\serialization.py:1580: SourceChangeWarning: source code of class 'torch.nn.modules.conv.Conv2d' has changed. you can retrieve the original source code by accessing the object's source attribute or set `torch.nn.Module.dump_patches = True` and use the patch tool to revert the changes.
+  warnings.warn(msg, SourceChangeWarning)
+I:\HoloMed\HoloMed-D\.venv\Lib\site-packages\torch\serialization.py:1580: SourceChangeWarning: source code of class 'torch.nn.modules.batchnorm.BatchNorm2d' has changed. you can retrieve the original source code by accessing the object's source attribute or set `torch.nn.Module.dump_patches = True` and use the patch tool to revert the changes.
+  warnings.warn(msg, SourceChangeWarning)
+I:\HoloMed\HoloMed-D\.venv\Lib\site-packages\torch\serialization.py:1580: SourceChangeWarning: source code of class 'torch.nn.modules.activation.ReLU' has changed. you can retrieve the original source code by accessing the object's source attribute or set `torch.nn.Module.dump_patches = True` and use the patch tool to revert the changes.
+  warnings.warn(msg, SourceChangeWarning)
+I:\HoloMed\HoloMed-D\.venv\Lib\site-packages\torch\serialization.py:1580: SourceChangeWarning: source code of class 'torch.nn.modules.pooling.MaxPool2d' has changed. you can retrieve the original source code by accessing the object's source attribute or set `torch.nn.Module.dump_patches = True` and use the patch tool to revert the changes.
+  warnings.warn(msg, SourceChangeWarning)
+I:\HoloMed\HoloMed-D\.venv\Lib\site-packages\torch\serialization.py:1580: SourceChangeWarning: source code of class 'torch.nn.modules.pooling.AvgPool2d' has changed. you can retrieve the original source code by accessing the object's source attribute or set `torch.nn.Module.dump_patches = True` and use the patch tool to revert the changes.
+  warnings.warn(msg, SourceChangeWarning)
+I:\HoloMed\HoloMed-D\.venv\Lib\site-packages\torch\serialization.py:1580: SourceChangeWarning: source code of class 'torch.nn.modules.linear.Linear' has changed. you can retrieve the original source code by accessing the object's source attribute or set `torch.nn.Module.dump_patches = True` and use the patch tool to revert the changes.
+  warnings.warn(msg, SourceChangeWarning)
+======================================================================
+HOLOMED CHEST X-RAY AI  |  PHASE 2 REAL CXR VALIDATION
+Research/Engineering Validation — Not a Diagnostic Result
+======================================================================
+  [PASS] provenance.json present
+
+-- SYSTEM --
+  python: 3.11.16
+  platform: Windows-10-10.0.26200-SP0
+  cpu: AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD
+  torch: 2.6.0+cu124
+  torchxrayvision: 1.5.4
+  pydicom: 3.0.2
+  cuda_available: True
+  device: cuda:0
+  cuda_runtime: 12.4
+  cudnn: 90100
+  gpu: NVIDIA GeForce RTX 3070 Ti
+  gpu_total_memory_gb: 8.0
+
+-- MODEL --
+  [PASS] local weights SHA-256 matches validated value — 56524913dd16a906422e8d8b66a7a5c46be1d82eb7ac012d8103776f1aa68899
+  [PASS] weights file loaded by xrv is byte-identical to local weights — %USERPROFILE%\.torchxrayvision\models_data/nih-pc-chex-mimic_ch-google-openi-kaggle-densenet121-d121-tw-lr001-rot45-tr15-sc15-seed0-best.pt
+  [PASS] architecture is TorchXRayVision DenseNet-121
+  [PASS] 18 model targets match expected list
+  [PASS] op_threshs present (output = sigmoid + op_norm)
+  [PASS] model on expected device — cuda:0
+  weights url : https://github.com/mlmed/torchxrayvision/releases/download/v1/nih-pc-chex-mimic_ch-google-openi-kaggle-densenet121-d121-tw-lr001-rot45-tr15-sc15-seed0-best.pt
+  loaded file : %USERPROFILE%\.torchxrayvision\models_data/nih-pc-chex-mimic_ch-google-openi-kaggle-densenet121-d121-tw-lr001-rot45-tr15-sc15-seed0-best.pt
+  sha256      : 56524913dd16a906422e8d8b66a7a5c46be1d82eb7ac012d8103776f1aa68899
+  params      : 6966034
+  load time   : 246.8 ms
+
+======================================================================
+CASE: nih_png (primary)
+======================================================================
+  [PASS] nih_png: source SHA-256 matches provenance (before) — c8cbe59e6b9b186060dc68e63965658fa6b5b3ada6648d25c189b8b69b43cd4c
+  [PASS] nih_png: original stored read-only
+
+-- INGESTION --
+  grayscale PNG read (L), maxval=255
+  [PASS] nih_png: decoded 2D grayscale — shape=(512, 512)
+  [PASS] nih_png: pixel range within [0, maxval] — [0, 255] maxval=255
+
+-- PREPROCESSING --
+  crop (y0, x0, size) = (0, 0, 512)  tensor=[1, 1, 224, 224]  range=[-1024.0, 1017.0] mean=5.1
+  [PASS] nih_png: 224x224 tensor — [1, 1, 224, 224]
+  [PASS] nih_png: tensor has no NaN/Inf
+  [PASS] nih_png: tensor within xrv range [-1024, 1024]
+
+-- ALL 18 MODEL SCORES (threshold-rescaled; not calibrated diagnostic probability) --
+   1. Cardiomegaly                 0.6600
+   2. Fibrosis                     0.5330
+   3. Infiltration                 0.5154
+   4. Pleural_Thickening           0.5103
+   5. Nodule                       0.5092
+   6. Atelectasis                  0.5050
+   7. Emphysema                    0.5036
+   8. Enlarged Cardiomediastinum   0.4101
+   9. Effusion                     0.4029
+  10. Fracture                     0.3238
+  11. Mass                         0.3226
+  12. Pneumonia                    0.3095
+  13. Consolidation                0.3059
+  14. Lung Opacity                 0.2775
+  15. Edema                        0.2743
+  16. Pneumothorax                 0.2487
+  17. Lung Lesion                  0.2223
+  18. Hernia                       0.0119
+  [PASS] nih_png: 18 outputs — 18
+  [PASS] nih_png: scores finite
+  [PASS] nih_png: scores in [0, 1] — [0.0119, 0.6600]
+
+  Grad-CAM target: Cardiomegaly (index 10, model score 0.6600)
+  [PASS] nih_png: target is a real model output — Cardiomegaly [10]
+
+-- GRAD-CAM --
+  Grad-CAM target: Cardiomegaly
+  Target layer   : features.denseblock4
+  target_score_in_grad_pass: 0.6600351333618164
+  activation_shape: [1, 1024, 7, 7]
+  gradient_shape: [1, 1024, 7, 7]
+  gradient_norm: 0.01254674419760704
+  cam_raw_min: 0.0
+  cam_raw_max: 0.015096127055585384
+  [PASS] nih_png: heatmap 224x224 — (224, 224)
+  [PASS] nih_png: heatmap finite
+  [PASS] nih_png: non-zero gradient — 0.0125467
+  [PASS] nih_png: non-trivial activation — raw max=0.0150961, 21.3% of pixels > 0.2
+  [PASS] nih_png: grad pass score equals inference score
+  [PASS] nih_png: heatmap is class-specific (differs from lowest-scoring target) — corr vs Hernia CAM = -0.341
+
+-- TIMING (measured) --
+  ingestion      median=1.847 ms  p95=2.161 ms
+  preprocessing  median=1.232 ms  p95=1.346 ms
+  inference      median=13.778 ms  p95=18.256 ms
+  gradcam        median=36.035 ms  p95=38.324 ms
+  cold first inference = 302.71 ms   end-to-end = 68.34 ms
+  GPU memory: {'baseline_allocated_mb': 70.03, 'inference_peak_allocated_mb': 77.88, 'gradcam_peak_allocated_mb': 177.22, 'peak_reserved_mb': 190.0}
+  [PASS] nih_png: runtime measured
+  [PASS] nih_png: GPU memory measured
+
+-- DATASET ANNOTATION --
+  The dataset annotation for this image indicates Cardiomegaly, while the model produced: Cardiomegaly score = 0.6600. A single image cannot establish accuracy.
+  [PASS] nih_png: ground truth handled from dataset file
+
+-- ARTIFACTS --
+  [PASS] nih_png: original_real_cxr.png is pixel-identical to source
+  [PASS] nih_png: overlay generated — (512, 512, 3)
+  [PASS] nih_png: artifact original_real_cxr.png — 113.5 KB
+  [PASS] nih_png: artifact real_cxr_preprocessed.png — 26.5 KB
+  [PASS] nih_png: artifact real_cxr_gradcam_heatmap.png — 12.8 KB
+  [PASS] nih_png: artifact real_cxr_gradcam_overlay.png — 220.3 KB
+  [PASS] nih_png: artifact real_cxr_validation_composite.png — 497.9 KB
+  [PASS] nih_png: artifact real_cxr_scores.json — 1.3 KB
+  [PASS] nih_png: source SHA-256 unchanged (after) — c8cbe59e6b9b186060dc68e63965658fa6b5b3ada6648d25c189b8b69b43cd4c
+
+======================================================================
+CASE: siim_dicom (secondary (DICOM ingestion path))
+======================================================================
+  [PASS] siim_dicom: source SHA-256 matches provenance (before) — 13d378bfe1af0724e8cbe51adde36882cfdc6a69361c8a48ac30f688c3af7613
+  [PASS] siim_dicom: original stored read-only
+
+-- INGESTION --
+  pixel_array decoded (1024, 1024) range [0, 254]
+  no Modality LUT / rescale present
+  no VOI LUT / window present
+  MONOCHROME2: no inversion
+  maxval=255 (BitsStored=8)
+  [PASS] siim_dicom: decoded 2D grayscale — shape=(1024, 1024)
+  [PASS] siim_dicom: pixel range within [0, maxval] — [0, 254] maxval=255
+
+-- PREPROCESSING --
+  crop (y0, x0, size) = (0, 0, 1024)  tensor=[1, 1, 224, 224]  range=[-983.3, 941.7] mean=266.3
+  [PASS] siim_dicom: 224x224 tensor — [1, 1, 224, 224]
+  [PASS] siim_dicom: tensor has no NaN/Inf
+  [PASS] siim_dicom: tensor within xrv range [-1024, 1024]
+
+-- ALL 18 MODEL SCORES (threshold-rescaled; not calibrated diagnostic probability) --
+   1. Mass                         0.5589
+   2. Pleural_Thickening           0.5585
+   3. Atelectasis                  0.5544
+   4. Fibrosis                     0.5332
+   5. Nodule                       0.5299
+   6. Infiltration                 0.5257
+   7. Fracture                     0.5186
+   8. Consolidation                0.5100
+   9. Pneumothorax                 0.5030
+  10. Emphysema                    0.5008
+  11. Lung Opacity                 0.3295
+  12. Pneumonia                    0.2897
+  13. Effusion                     0.2388
+  14. Enlarged Cardiomediastinum   0.1563
+  15. Hernia                       0.0573
+  16. Cardiomegaly                 0.0524
+  17. Edema                        0.0119
+  18. Lung Lesion                  0.0032
+  [PASS] siim_dicom: 18 outputs — 18
+  [PASS] siim_dicom: scores finite
+  [PASS] siim_dicom: scores in [0, 1] — [0.0032, 0.5589]
+
+  Grad-CAM target: Mass (index 12, model score 0.5589)
+  [PASS] siim_dicom: target is a real model output — Mass [12]
+
+-- GRAD-CAM --
+  Grad-CAM target: Mass
+  Target layer   : features.denseblock4
+  target_score_in_grad_pass: 0.5589016079902649
+  activation_shape: [1, 1024, 7, 7]
+  gradient_shape: [1, 1024, 7, 7]
+  gradient_norm: 0.006559021770954132
+  cam_raw_min: 0.0
+  cam_raw_max: 0.0062130531296133995
+  [PASS] siim_dicom: heatmap 224x224 — (224, 224)
+  [PASS] siim_dicom: heatmap finite
+  [PASS] siim_dicom: non-zero gradient — 0.00655902
+  [PASS] siim_dicom: non-trivial activation — raw max=0.00621305, 46.6% of pixels > 0.2
+  [PASS] siim_dicom: grad pass score equals inference score
+  [PASS] siim_dicom: heatmap is class-specific (differs from lowest-scoring target) — corr vs Lung Lesion CAM = 0.056
+
+-- TIMING (measured) --
+  ingestion      median=6.472 ms  p95=7.035 ms
+  preprocessing  median=5.612 ms  p95=6.258 ms
+  inference      median=13.729 ms  p95=14.620 ms
+  gradcam        median=36.106 ms  p95=37.612 ms
+  cold first inference = 15.63 ms   end-to-end = 68.21 ms
+  GPU memory: {'baseline_allocated_mb': 70.03, 'inference_peak_allocated_mb': 77.88, 'gradcam_peak_allocated_mb': 177.22, 'peak_reserved_mb': 190.0}
+  [PASS] siim_dicom: runtime measured
+  [PASS] siim_dicom: GPU memory measured
+
+-- DATASET ANNOTATION --
+  The dataset annotation for this image indicates no pneumothorax (EncodedPixels = -1), while the model produced: Pneumothorax score = 0.5030. A single image cannot establish accuracy.
+  [PASS] siim_dicom: ground truth handled from dataset file
+
+-- ARTIFACTS --
+  [PASS] siim_dicom: overlay generated — (1024, 1024, 3)
+  [PASS] siim_dicom: artifact siim_dicom_original_real_cxr.png — 353.8 KB
+  [PASS] siim_dicom: artifact siim_dicom_real_cxr_preprocessed.png — 27.1 KB
+  [PASS] siim_dicom: artifact siim_dicom_real_cxr_gradcam_heatmap.png — 13.0 KB
+  [PASS] siim_dicom: artifact siim_dicom_real_cxr_gradcam_overlay.png — 732.0 KB
+  [PASS] siim_dicom: artifact siim_dicom_real_cxr_validation_composite.png — 476.5 KB
+  [PASS] siim_dicom: artifact siim_dicom_real_cxr_scores.json — 1.3 KB
+  [PASS] siim_dicom: source SHA-256 unchanged (after) — 13d378bfe1af0724e8cbe51adde36882cfdc6a69361c8a48ac30f688c3af7613
+  [PASS] primary real CXR (NIH PNG) validated
+
+======================================================================
+PHASE 2 STATUS: PASS  (65/65 checks passed)
+======================================================================

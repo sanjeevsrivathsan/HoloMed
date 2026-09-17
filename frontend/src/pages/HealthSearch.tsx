@@ -5,8 +5,8 @@ import { Button } from '@/components/Button';
 import { FilterBar, SelectFilter } from '@/components/FilterBar';
 import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState, NoResultsState } from '@/components/States';
-import { DemoDataBadge } from '@/components/DemoDataBadge';
 import { SourceReferenceList } from '@/components/SourceReference';
+import { api } from '@/lib/api';
 import type { Report, MedicalMeasurement, SourceReference } from '@/lib/types';
 
 interface HealthSearchProps {
@@ -32,6 +32,8 @@ export function HealthSearch({ reports, measurements, sourceReferences, onSelect
   const [testNameFilter, setTestNameFilter] = useState('All');
   const [flagFilter, setFlagFilter] = useState('All');
   const [hasSearched, setHasSearched] = useState(false);
+  const [searchResult, setSearchResult] = useState<{ reportIds: string[], measurementIds: string[] } | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   const hospitals = useMemo(() => {
     const set = new Set<string>();
@@ -49,36 +51,49 @@ export function HealthSearch({ reports, measurements, sourceReferences, onSelect
 
   const matchingReports = useMemo(() => {
     return reports.filter((r) => {
+      if (searchResult && !searchResult.reportIds.includes(r.id)) return false;
       if (search && !r.title.toLowerCase().includes(search.toLowerCase())) return false;
       if (typeFilter !== 'All' && r.type !== typeFilter) return false;
       if (statusFilter !== 'All' && r.status !== statusFilter) return false;
       if (hospitalFilter !== 'All' && r.hospital !== hospitalFilter && r.laboratory !== hospitalFilter) return false;
       return true;
     });
-  }, [reports, search, typeFilter, statusFilter, hospitalFilter]);
+  }, [reports, search, typeFilter, statusFilter, hospitalFilter, searchResult]);
 
   const matchingMeasurements = useMemo(() => {
     return measurements.filter((m) => {
+      if (searchResult && !searchResult.measurementIds.includes(m.id)) return false;
       if (testNameFilter !== 'All' && m.testName !== testNameFilter) return false;
       if (flagFilter !== 'All' && m.flag !== flagFilter) return false;
       if (hospitalFilter !== 'All' && m.hospital !== hospitalFilter && m.laboratory !== hospitalFilter) return false;
       return true;
     });
-  }, [measurements, testNameFilter, flagFilter, hospitalFilter]);
+  }, [measurements, testNameFilter, flagFilter, hospitalFilter, searchResult]);
 
   const matchingRefs = useMemo(() => {
     const reportIds = new Set(matchingReports.map((r) => r.id));
     return sourceReferences.filter((r) => reportIds.has(r.reportId));
   }, [sourceReferences, matchingReports]);
 
-  const handleNlSearch = () => {
-    if (!nlQuery.trim()) return;
+  const handleNlSearch = async () => {
+    if (!nlQuery.trim()) {
+      setSearchResult(null);
+      return;
+    }
     setHasSearched(true);
-    const q = nlQuery.toLowerCase();
-    if (q.includes('hba1c')) setTestNameFilter('HbA1c');
-    if (q.includes('abnormal')) setFlagFilter('abnormal');
-    if (q.includes('imaging')) setTypeFilter('Imaging Report');
-    if (q.includes('blood')) setTypeFilter('Blood Test');
+    setIsSearching(true);
+    
+    try {
+      const res = await api.post<any>('/api/v1/search', { query: nlQuery });
+      setSearchResult({
+        reportIds: res.report_ids.map(String),
+        measurementIds: res.measurement_ids.map(String)
+      });
+    } catch (err) {
+      console.error('[HealthSearch] Backend search failed', err);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -93,7 +108,7 @@ export function HealthSearch({ reports, measurements, sourceReferences, onSelect
     <div className="space-y-6">
       {/* NL Search Bar */}
       <Card>
-        <CardHeader title="Health Search" subtitle="Search your medical records with structured filters or natural language" icon={<Search className="h-4.5 w-4.5" />} action={<DemoDataBadge />} />
+        <CardHeader title="Health Search" subtitle="Search your medical records with structured filters or natural language" icon={<Search className="h-4.5 w-4.5" />} />
         <div className="px-5 pb-5">
           <div className="relative">
             <Sparkles className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-teal-500" />
@@ -111,7 +126,8 @@ export function HealthSearch({ reports, measurements, sourceReferences, onSelect
               <button
                 key={q}
                 onClick={() => { setNlQuery(q); }}
-                className="rounded-full border border-neutral-200 px-2.5 py-1 text-xs text-neutral-500 hover:border-teal-400 hover:text-teal-600 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-teal-700"
+                disabled={isSearching}
+                className="rounded-full border border-neutral-200 px-2.5 py-1 text-xs text-neutral-500 hover:border-teal-400 hover:text-teal-600 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-teal-700 disabled:opacity-50"
               >
                 {q}
               </button>

@@ -3,7 +3,6 @@ import { Stethoscope, TrendingUp, TrendingDown, Minus, Sparkles, FileText, ScanL
 import { Card, CardHeader } from '@/components/Card';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SafetyNotice } from '@/components/SafetyNotice';
-import { DemoDataBadge } from '@/components/DemoDataBadge';
 import { EmptyState } from '@/components/States';
 import type { Report, MedicalMeasurement, ImagingStudy } from '@/lib/types';
 
@@ -65,7 +64,6 @@ export function ClinicalView({ report, measurements, studies, onOpenImaging }: C
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-bold text-neutral-900 dark:text-white">{report.title}</h2>
-            <DemoDataBadge />
           </div>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">{report.type} · {report.source} · {formatDate(report.date)}</p>
         </div>
@@ -118,7 +116,6 @@ export function ClinicalView({ report, measurements, studies, onOpenImaging }: C
             title="AI Explanation"
             subtitle="AI-generated summary — visually distinct from source clinical data"
             icon={<Sparkles className="h-4.5 w-4.5" />}
-            action={<DemoDataBadge />}
           />
           <div className="space-y-3 p-5">
             <div className="rounded-lg bg-teal-50/50 p-3 dark:bg-teal-950/10">

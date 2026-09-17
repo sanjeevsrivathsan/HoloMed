@@ -28,3 +28,23 @@ class Report(SQLModel, table=True):
     storage_key: str
     storage_provider: str = "local"
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+
+class ReportRead(SQLModel):
+    id: int
+    owner_id: int
+    patient_id: int | None = None
+    title: str
+    type: str
+    source: str
+    report_date: str
+    status: str
+    hospital: Optional[str] = None
+    laboratory: Optional[str] = None
+    department: Optional[str] = None
+    doctor: Optional[str] = None
+    original_filename: str
+    mime_type: str
+    file_size: int
+    storage_key: str
+    storage_provider: str
+    uploaded_at: datetime

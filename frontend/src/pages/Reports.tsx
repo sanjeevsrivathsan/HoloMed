@@ -11,7 +11,6 @@ import { Modal } from '@/components/Modal';
 import { FilterBar, SelectFilter } from '@/components/FilterBar';
 import { SafetyNotice } from '@/components/SafetyNotice';
 import { EmptyState, LoadingState, ErrorState } from '@/components/States';
-import { DemoDataBadge } from '@/components/DemoDataBadge';
 import { reportStatusLabels, summaryModeLabels } from '@/lib/demo-data';
 import type { Report, ReportStatus, SummaryMode, ReportSummarySection } from '@/lib/types';
 
@@ -22,6 +21,8 @@ interface ReportsProps {
   onUpload: (file: File, storage: string) => void;
   uploadStage: UploadStage | null;
   onNavigateClinical: (reportId: string) => void;
+  onGenerateSummary: (reportId: string, mode: SummaryMode) => void;
+  isGeneratingSummary?: boolean;
 }
 
 export type UploadStage = 'uploading' | 'extracting' | 'ocr' | 'structured' | 'ready' | 'failed';
@@ -56,7 +57,7 @@ const summarySections: { key: string; label: string }[] = [
 const reportTypes = ['All', 'Blood Test', 'Imaging Report', 'Pathology', 'Discharge Summary', 'Consultation', 'Operative Report', 'Other'];
 const statusOptions = ['All', 'ready', 'processing', 'extracting', 'failed'];
 
-export function Reports({ reports, selectedReportId, onSelectReport, onUpload, uploadStage, onNavigateClinical }: ReportsProps) {
+export function Reports({ reports, selectedReportId, onSelectReport, onUpload, uploadStage, onNavigateClinical, onGenerateSummary, isGeneratingSummary }: ReportsProps) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -100,7 +101,7 @@ export function Reports({ reports, selectedReportId, onSelectReport, onUpload, u
       {/* Left: Report List */}
       <div className="lg:col-span-3 lg:overflow-y-auto">
         <Card className="lg:h-full flex flex-col">
-          <CardHeader title="Reports" icon={<FileText className="h-4.5 w-4.5" />} action={<DemoDataBadge />} />
+          <CardHeader title="Reports" icon={<FileText className="h-4.5 w-4.5" />} />
           <div className="px-4 pb-3">
             <FilterBar searchValue={search} onSearchChange={setSearch} searchPlaceholder="Search reports...">
               <SelectFilter label="Type" value={typeFilter} options={reportTypes.map(t => ({ value: t, label: t }))} onChange={setTypeFilter} />
@@ -202,7 +203,7 @@ export function Reports({ reports, selectedReportId, onSelectReport, onUpload, u
 
 ### Extracted Content
 
-This is a demo representation of the extracted markdown. The MarkItDown pipeline converts the original PDF to structured markdown text server-side, with OCR fallback for scanned documents.
+The MarkItDown pipeline converts the original PDF to structured markdown text server-side, with OCR fallback for scanned documents.
 
 ### Key Sections
 - Patient demographics
@@ -256,17 +257,24 @@ This is a demo representation of the extracted markdown. The MarkItDown pipeline
             title="AI Summary"
             subtitle={selectedReport?.summary ? `${summaryModeLabels[selectedReport.summary.mode]} mode` : undefined}
             icon={<Sparkles className="h-4.5 w-4.5" />}
-            action={<DemoDataBadge />}
           />
           <div className="flex-1 overflow-y-auto p-4">
             {!selectedReport ? (
               <EmptyState title="No report selected" description="Select a report to view its AI-generated summary." icon={<Sparkles className="h-6 w-6" />} />
             ) : !selectedReport.summary ? (
-              <EmptyState
-                title="No summary available"
-                description="This report has not been summarized yet. Generate one using the summary mode selector."
-                icon={<FileSearch className="h-6 w-6" />}
-              />
+              <div className="flex flex-col items-center justify-center space-y-4 py-8">
+                <EmptyState
+                  title="No summary available"
+                  description="This report has not been summarized yet."
+                  icon={<FileSearch className="h-6 w-6" />}
+                />
+                <Button 
+                  onClick={() => onGenerateSummary(selectedReport.id, summaryMode)}
+                  disabled={isGeneratingSummary}
+                >
+                  {isGeneratingSummary ? 'Generating...' : 'Generate AI Summary'}
+                </Button>
+              </div>
             ) : (
               <div className="space-y-4">
                 {/* Summary Mode Selector */}
@@ -303,6 +311,18 @@ This is a demo representation of the extracted markdown. The MarkItDown pipeline
                           <span className="text-neutral-600 dark:text-neutral-400">{s.label}</span>
                         </label>
                       ))}
+                    </div>
+                  )}
+                  {selectedReport.summary && (
+                    <div className="mt-4 flex justify-end">
+                      <Button 
+                        onClick={() => onGenerateSummary(selectedReport.id, summaryMode)}
+                        disabled={isGeneratingSummary}
+                        variant="outline"
+                        size="sm"
+                      >
+                        {isGeneratingSummary ? 'Regenerating...' : 'Regenerate Summary'}
+                      </Button>
                     </div>
                   )}
                 </div>

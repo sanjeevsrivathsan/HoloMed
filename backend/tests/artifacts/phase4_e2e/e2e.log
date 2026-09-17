@@ -1,0 +1,58 @@
+[PASS] login succeeds and Imaging opens on AI Screening
+[PASS] OHIF Viewer mode still available
+[PASS] safety notice visible before any result
+[PASS] NIH PNG validated client-side — PNG · 178.3 KB
+[PASS] selected image preview shown
+[PASS] loading state shown
+[PASS] screening completed — 237 ms (first request incl. model load)
+[PASS] primary model finding = Cardiomegaly — Cardiomegaly
+[PASS] model score = 0.6600 — 0.6600
+[PASS] all 18 findings listed — 18
+[PASS] finding names match the 18 model targets — Cardiomegaly, Fibrosis, Infiltration, Pleural Thickening, Nodule, Atelectasis, Emphysema, Enlarged Cardiomediastinum, Effusion, Fracture, Mass, Pneumonia, Consolidation, Lung Opacity, Edema, Pneumothorax, Lung Lesion, Hernia
+[PASS] findings sorted by model score — 0.66 0.533 0.5154 0.5103 0.5092 0.505 0.5036 0.4101 0.4029 0.3238 0.3226 0.3095 0.3059 0.2775 0.2743 0.2487 0.2223 0.0119
+[PASS] no "Normal" or diagnostic wording in results
+[PASS] original image rendered from backend — 512x512
+[PASS] Grad-CAM heatmap rendered 224x224 — 224x224
+[PASS] overlay view default at 45% — 0.45
+[PASS] explanation targets Cardiomegaly — Grad-CAM visual explanation for Cardiomegaly
+[PASS] Original view hides heatmap
+[PASS] Grad-CAM view shows heatmap fully
+[PASS] overlay opacity slider works — 0.7
+[PASS] selecting Effusion requests a new explanation
+[PASS] backend explanation for requested target=Effusion — explanation.target_pathology=Effusion, layer=features.denseblock4
+[PASS] Grad-CAM changes for selected finding — alt: Grad-CAM visual explanation for Effusion
+[PASS] primary finding unchanged after selection
+[PASS] Effusion row marked selected
+[PASS] re-selecting primary finding uses cached explanation
+[PASS] safety notice text
+[PASS] "Requires clinical review." shown
+[PASS] "Requires Clinical Review" badge shown
+[PASS] Grad-CAM described as non-evidence
+[PASS] model info: name/weights/outputs/explanation — Model | TorchXRayVision DenseNet-121 | Weights | densenet121-res224-all | Weights SHA-256 | 56524913dd16…a68899 | Output | 18 chest X-ray pathology targets | Explanation | Grad-CAM · features.denseblock4 | Model score | Non-diagnostic model output | Input | PNG · 512×512 | Analyzed | 9/17/2026, 9:02:47 AM
+[PASS] no filesystem paths in page
+[PASS] timing from backend shown (6 values) — Preprocessing | 12 ms | Inference | 70 ms | Explanation (Grad-CAM) | 53 ms | Image rendering | 27 ms | Server total | 164 ms | Round trip (browser) | 188 ms |  | Measured for this request on the HoloMed server (cuda:0).
+[PASS] no image data in local/session storage — localStorage 2 chars, sessionStorage 2 chars
+[PASS] browser only talks to HoloMed origin — 127.0.0.1:5173, fonts.googleapis.com, fonts.gstatic.com
+[PASS] no console errors in main workflow (except pre-login /auth/me 401 probe) — [{"phase":"main","status":401,"url":"/api/v1/auth/me"},{"phase":"main","status":401,"url":"/api/v1/auth/me"}]
+[PASS] DICOM validated; placeholder shown before screening
+[PASS] SIIM DICOM primary = Mass 0.5589 — Mass 0.5589
+[PASS] DICOM original rendered 1024x1024 — 1024x1024
+[PASS] DICOM heatmap rendered — 224
+[PASS] DICOM input shows CR; no patient/study identifiers in results — DICOM · 1024×1024 · CR
+[PASS] 18 findings for DICOM
+[PASS] DICOM finding selection works (Pneumothorax)
+[PASS] no console errors during DICOM workflow — [{"phase":"main","status":401,"url":"/api/v1/auth/me"},{"phase":"main","status":401,"url":"/api/v1/auth/me"}]
+[PASS] invalid file (text as .png) rejected client-side — Unsupported file type. Select a PNG, JPEG, or DICOM (.dcm) chest X-ray.
+[PASS] unsupported file (GIF) rejected — Unsupported file type. Select a PNG, JPEG, or DICOM (.dcm) chest X-ray.
+[PASS] corrupt PNG → backend 400 → friendly message — Image could not be read  The file appears to be corrupt, incomplete, or empty. Please select another image.
+[PASS] CT DICOM → backend 422 → friendly message — Image not supported for screening  Screening requires a single-frame grayscale chest radiograph (DICOM CR/DX, PNG, or JPEG) at least 64 px on each side.
+[PASS] 503 → "temporarily unavailable" message — Screening unavailable  Screening service is temporarily unavailable. Please try again.
+[PASS] network failure → "Backend unreachable" message — Backend unreachable  Cannot reach the HoloMed backend. Check your connection and that the server is running, then try again.
+[PASS] unauthenticated API request → 401 — 401
+[PASS] expired session → "Session expired" + sign-in action — Session expired  Your session has ended. Please sign in again to run AI screening.  Sign in again
+[PASS] error phase: only expected failed-request console entries — 5 entries; unexpected: 
+WAITING: stop the backend and create backend_stopped.flag
+[PASS] real backend outage → friendly unavailable message — Screening unavailable  Screening service is temporarily unavailable. Please try again.
+[PASS] no raw server/stack text shown
+E2E PASS: 55/55
+exit=0

@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
+import httpx
 
+from ..config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 from ..dependencies.auth import get_current_user
 from ..models.user import User
 
@@ -54,3 +56,79 @@ def verify_email():
 @router.get("/me")
 def me(current_user: User = Depends(get_current_user)):
     return {"id": current_user.id, "email": current_user.email}
+
+@router.get("/google")
+def google_login():
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(status_code=501, detail="Live Google verification cannot be performed")
+    
+    redirect_uri = "http://localhost:5173/api/v1/auth/google/callback"
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth"
+        f"?client_id={GOOGLE_CLIENT_ID}"
+        f"&response_type=code"
+        f"&scope=openid%20email%20profile"
+        f"&redirect_uri={redirect_uri}"
+        f"&access_type=offline"
+    )
+    return RedirectResponse(url=auth_url)
+
+@router.get("/google/callback")
+async def google_callback(code: str, db: Session = Depends(get_session)):
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(status_code=501, detail="Live Google verification cannot be performed")
+        
+    redirect_uri = "http://localhost:5173/api/v1/auth/google/callback"
+    
+    async with httpx.AsyncClient() as client:
+        token_res = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": redirect_uri,
+            }
+        )
+        if token_res.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to exchange Google code")
+            
+        access_token = token_res.json().get("access_token")
+        
+        user_res = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        if user_res.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to get Google user info")
+            
+        user_info = user_res.json()
+        
+    email = user_info.get("email")
+    google_id = user_info.get("id")
+    
+    if not email or not google_id:
+        raise HTTPException(status_code=400, detail="Invalid Google user info")
+        
+    stmt = select(User).where(User.email == email)
+    user = db.exec(stmt).first()
+    
+    if user:
+        if user.google_id is None:
+            user.google_id = google_id
+            db.commit()
+            db.refresh(user)
+        elif user.google_id != google_id:
+            raise HTTPException(status_code=400, detail="Email associated with a different Google account")
+    else:
+        user = User(email=email, google_id=google_id, hashed_password=None)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        
+    session_token = create_access_token({"sub": str(user.id)})
+    
+    response = RedirectResponse(url="/")
+    response.set_cookie(key="session", value=session_token, httponly=True, secure=False, samesite="lax")
+    return response

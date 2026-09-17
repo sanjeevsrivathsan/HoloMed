@@ -6,7 +6,6 @@ import { Card, CardHeader } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { Modal } from '@/components/Modal';
 import { StatusBadge } from '@/components/StatusBadge';
-import { DemoDataBadge } from '@/components/DemoDataBadge';
 import { EmptyState } from '@/components/States';
 import type { Template, TemplateSection } from '@/lib/types';
 
@@ -122,7 +121,7 @@ export function Templates({ templates, onSaveTemplate }: TemplatesProps) {
             icon={<LayoutTemplate className="h-4.5 w-4.5" />}
             action={<Button size="sm" onClick={startNew}><Plus className="h-3.5 w-3.5" /> New</Button>}
           />
-          <div className="px-4 pb-2"><DemoDataBadge /></div>
+          <div className="px-4 pb-2"></div>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {templates.length === 0 ? (
               <EmptyState title="No templates" description="Create a template to get started." icon={<LayoutTemplate className="h-6 w-6" />} />

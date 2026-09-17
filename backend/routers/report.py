@@ -7,14 +7,15 @@ from datetime import datetime
 import json
 
 from ..database import get_session
-from ..models import Report, User, Patient
+from ..models import Report, ReportRead, User, Patient, ReportSummary, ReportSummaryRead
 from ..dependencies.auth import get_current_user
 from ..services.storage import store_file, retrieve_file
 from ..routers.medical_data import log_action
+from ..services.ai_service import generate_summary
 
 router = APIRouter(prefix="/api/v1/reports", tags=["Reports"])
 
-@router.post("")
+@router.post("", response_model=ReportRead)
 async def upload_report(
     file: UploadFile = File(...),
     title: str = Form("Untitled Report"),
@@ -63,10 +64,11 @@ async def upload_report(
     session.refresh(report)
     
     log_action(session, user.id, "report_uploaded", {"report_id": report.id, "title": report.title})
+    session.commit()
     
     return report
 
-@router.get("")
+@router.get("", response_model=List[ReportRead])
 def list_reports(
     patient_id: Optional[int] = None,
     user: User = Depends(get_current_user),
@@ -78,7 +80,7 @@ def list_reports(
     reports = session.exec(stmt).all()
     return reports
 
-@router.get("/{report_id}")
+@router.get("/{report_id}", response_model=ReportRead)
 def get_report(
     report_id: int,
     user: User = Depends(get_current_user),
@@ -104,6 +106,7 @@ def download_report(
         raise HTTPException(status_code=404, detail="File content not found in storage")
         
     log_action(session, user.id, "report_downloaded", {"report_id": report.id})
+    session.commit()
     return StreamingResponse(io.BytesIO(file_bytes), media_type=report.mime_type)
 
 @router.delete("/{report_id}")
@@ -117,6 +120,55 @@ def delete_report(
         raise HTTPException(status_code=404, detail="Report not found")
         
     session.delete(report)
-    session.commit()
     log_action(session, user.id, "report_deleted", {"report_id": report_id})
+    session.commit()
     return {"status": "deleted"}
+
+@router.get("/{report_id}/summary", response_model=Optional[ReportSummaryRead])
+def get_report_summary(
+    report_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    report = session.get(Report, report_id)
+    if not report or report.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Report not found")
+        
+    stmt = select(ReportSummary).where(ReportSummary.report_id == report_id)
+    summary = session.exec(stmt).first()
+    return summary
+
+@router.post("/{report_id}/summary", response_model=ReportSummaryRead)
+async def create_report_summary(
+    report_id: int,
+    mode: str = Form("standard"),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    report = session.get(Report, report_id)
+    if not report or report.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Report not found")
+        
+    # Mock OCR extraction (since we just have PDF/files right now)
+    report_text = f"Simulated extracted text for report {report.title}"
+    
+    summary_sections = await generate_summary(report_text, mode)
+    
+    # Delete old summary if exists
+    existing = session.exec(select(ReportSummary).where(ReportSummary.report_id == report_id)).first()
+    if existing:
+        session.delete(existing)
+        session.commit()
+        
+    summary = ReportSummary(
+        report_id=report_id,
+        owner_id=user.id,
+        mode=mode,
+        sections=json.dumps(summary_sections)
+    )
+    
+    session.add(summary)
+    log_action(session, user.id, "report_summary_generated", {"report_id": report_id})
+    session.commit()
+    session.refresh(summary)
+    return summary

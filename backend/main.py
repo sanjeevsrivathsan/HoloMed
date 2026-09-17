@@ -68,14 +68,26 @@ async def on_startup():
                        f" Please verify if it should be removed manually.")
     # Initialise the SQLite DB
     init_db()
+    # Optional: warm the vision model in the background (VISION_PRELOAD=1)
+    from .services.vision.provider import start_background_preload
+    start_background_preload()
 
 # Include versioned API router
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(medical_data.router)
 app.include_router(auth.router)
 app.include_router(dicomweb.router)
-from .routers import report
+from .routers import report, audit, measurement, template, consent, storage_connection, search, ai
 app.include_router(report.router)
+app.include_router(ai.router)
+app.include_router(audit.router)
+app.include_router(measurement.router)
+app.include_router(template.router)
+app.include_router(consent.router)
+app.include_router(storage_connection.router)
+app.include_router(search.router)
+from .routers import vision
+app.include_router(vision.router)
 import sys
 from fastapi import Depends
 from backend.dependencies import auth as auth_dep

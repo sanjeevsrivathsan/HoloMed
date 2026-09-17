@@ -14,6 +14,8 @@ export default defineConfig({
     exclude: ['lucide-react'],
   },
   server: {
+    port: 5173,
+    strictPort: true,
     proxy: {
       // Forward /api/* to the FastAPI backend during development.
       // This keeps frontend and backend on the same effective origin so

@@ -1,0 +1,88 @@
+======================================================================
+HOLOMED CHEST X-RAY AI  |  STANDALONE MODEL VALIDATION
+======================================================================
+
+── 1. SYSTEM & DEVICE INFO ──
+PyTorch : 2.6.0+cu124
+CUDA    : True
+GPU     : NVIDIA GeForce RTX 3070 Ti
+VRAM    : 8.00 GB
+
+── 2. MODEL LOADING (LOCAL WEIGHTS) ──
+Weights : I:\HoloMed\HoloMed-D\backend\models\weights\densenet121-res224-all.pt
+File    : 27.07 MB
+SHA256  : 56524913dd16a906422e8d8b66a7a5c46be1d82eb7ac012d8103776f1aa68899
+Loaded in : 243.8 ms
+Pathologies (18):
+  [ 0] Atelectasis
+  [ 1] Consolidation
+  [ 2] Infiltration
+  [ 3] Pneumothorax
+  [ 4] Edema
+  [ 5] Emphysema
+  [ 6] Fibrosis
+  [ 7] Effusion
+  [ 8] Pneumonia
+  [ 9] Pleural_Thickening
+  [10] Cardiomegaly
+  [11] Nodule
+  [12] Mass
+  [13] Hernia
+  [14] Lung Lesion
+  [15] Fracture
+  [16] Lung Opacity
+  [17] Enlarged Cardiomediastinum
+
+-- 3. IMAGE PREPROCESSING --
+Input shape : (512, 512), range [0, 153]
+Tensor    : [1, 1, 224, 224], device=cuda:0
+Norm range: [-1024.00, 125.51]
+Mean/Std  : -902.10 / 280.05
+
+-- 4. BENCHMARK --
+Warning: Input image does not appear to be normalized correctly. The input image has the range [-1024.00,125.51] which doesn't seem to be in the [-1024,1024] range. This warning may be wrong though. Only the first image is tested and we are only using a heuristic in an attempt to save a user from using the wrong normalization.
+GPU (NVIDIA GeForce RTX 3070 Ti): mean=13.02 ms  min=12.50 ms  max=15.17 ms  P95=13.62 ms
+VRAM : baseline=35.3 MB  peak=43.7 MB
+CPU fallback : mean=38.64 ms  min=33.34 ms
+
+-- 5. ALL 18 PATHOLOGY MODEL SCORES --
+Rank  Pathology                     Score   Percent
+-------------------------------------------------------
+   1  Edema                      0.6103   61.03%
+   2  Fracture                   0.5606   56.06%
+   3  Atelectasis                0.5568   55.68%
+   4  Lung Opacity               0.5407   54.07%
+   5  Pneumonia                  0.5398   53.98%
+   6  Effusion                   0.5355   53.55%
+   7  Consolidation              0.5326   53.26%
+   8  Enlarged Cardiomediastinum  0.5202   52.02%
+   9  Emphysema                  0.5187   51.87%
+  10  Cardiomegaly               0.5146   51.46%
+  11  Lung Lesion                0.5001   50.01%
+  12  Pneumothorax               0.4984   49.84%
+  13  Mass                       0.4326   43.26%
+  14  Fibrosis                   0.4204   42.04%
+  15  Infiltration               0.3217   32.17%
+  16  Hernia                     0.2696   26.96%
+  17  Nodule                     0.2327   23.27%
+  18  Pleural_Thickening         0.1096   10.96%
+
+>>> Primary Finding: Edema  (Model Score: 61.03%)
+
+-- 6. TARGET-SPECIFIC GRAD-CAM --
+Activation shape : [1, 1024, 7, 7]
+Gradient shape   : [1, 1024, 7, 7]
+Gradient norm    : 0.0128  (non-zero = real gradient)
+CAM range   : [0.0000, 1.0000]
+CAM NaN/Inf : NaN=False  Inf=False
+CAM nonzero : 15371/50176 pixels (30.6%)
+
+-- 7. SAVING ARTIFACTS --
+  original_xray.png: 36.8 KB
+  gradcam_heatmap.png: 4.4 KB
+  gradcam_overlay.png: 48.9 KB
+  validation_composite.png: 97.5 KB
+
+======================================================================
+ALL CHECKS PASSED — VALIDATION COMPLETE
+======================================================================

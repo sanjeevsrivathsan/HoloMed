@@ -1,0 +1,63 @@
+{
+  "purpose": "HoloMed-D Phase 2 real chest X-ray engineering validation. Research/engineering use only; not a diagnostic result.",
+  "retrieved_on": "2026-09-17",
+  "retrieved_via": {
+    "repository": "https://github.com/mlmed/torchxrayvision",
+    "path": "tests/",
+    "pinned_commit": "be1cefcc4967c1143520070fb7d760dc3d485e07",
+    "note": "Test images shipped in the TorchXRayVision repository (the same project that publishes the densenet121-res224-all weights). Downloaded from raw.githubusercontent.com at the pinned commit; size and git blob SHA-1 verified against the GitHub contents API."
+  },
+  "cases": [
+    {
+      "key": "nih_png",
+      "role": "primary",
+      "local_file": "source/00000001_000.png",
+      "download_url": "https://raw.githubusercontent.com/mlmed/torchxrayvision/be1cefcc4967c1143520070fb7d760dc3d485e07/tests/00000001_000.png",
+      "git_blob_sha1": "dfe0b95676e97ed4d473872caedce2ffa44b4ebc",
+      "size_bytes": 182547,
+      "sha256": "c8cbe59e6b9b186060dc68e63965658fa6b5b3ada6648d25c189b8b69b43cd4c",
+      "dataset": "NIH ChestX-ray14 (NIH Clinical Center)",
+      "dataset_reference": "https://nihcc.app.box.com/v/ChestXray-NIHCC ; Wang et al., 'ChestX-ray8', CVPR 2017",
+      "image_identifier": "00000001_000.png",
+      "modality": "Chest radiograph (NIH release does not carry a DICOM modality tag)",
+      "projection": "PA (from the dataset 'View Position' column)",
+      "format": "PNG, 8-bit grayscale, 512x512 as shipped in the TorchXRayVision repo (downsampled copy; dataset metadata lists original size 2682x2749)",
+      "public_deidentified": "Public, de-identified research dataset released by the NIH Clinical Center",
+      "label_source": "Data_Entry_2017_v2020.csv.gz bundled with the installed torchxrayvision 1.5.4 package; looked up at runtime by validate_real_cxr.py",
+      "label_caveat": "ChestX-ray14 labels were mined from radiology reports with NLP/text mining. They are not radiologist-confirmed per-image ground truth and carry known label noise."
+    },
+    {
+      "key": "siim_dicom",
+      "role": "secondary (DICOM ingestion path)",
+      "local_file": "source/1.2.276.0.7230010.3.1.4.8323329.6904.1517875201.850819.dcm",
+      "download_url": "https://raw.githubusercontent.com/mlmed/torchxrayvision/be1cefcc4967c1143520070fb7d760dc3d485e07/tests/1.2.276.0.7230010.3.1.4.8323329.6904.1517875201.850819.dcm",
+      "git_blob_sha1": "8e9c527a0fc3db22488f3876461a9fc8ed5ba9a9",
+      "size_bytes": 127290,
+      "sha256": "13d378bfe1af0724e8cbe51adde36882cfdc6a69361c8a48ac30f688c3af7613",
+      "dataset": "SIIM-ACR Pneumothorax Segmentation (images derived from NIH ChestX-ray14)",
+      "dataset_reference": "https://www.kaggle.com/c/siim-acr-pneumothorax-segmentation",
+      "image_identifier": "SOPInstanceUID 1.2.276.0.7230010.3.1.4.8323329.6904.1517875201.850819",
+      "modality": "CR (DICOM Modality tag)",
+      "projection": "PA (DICOM ViewPosition tag)",
+      "format": "DICOM, JPEG Baseline (Process 1) transfer syntax, 8-bit, MONOCHROME2, 1024x1024",
+      "public_deidentified": "Public challenge dataset; PatientName/PatientID are random UUIDs, StudyDate is the placeholder 19010101, no institution tag",
+      "label_source": "siim-pneumothorax-train-rle.csv.gz bundled with the installed torchxrayvision 1.5.4 package; looked up at runtime by validate_real_cxr.py",
+      "label_caveat": "The SIIM-ACR annotation covers pneumothorax only. EncodedPixels == -1 means no pneumothorax mask was annotated; it says nothing about any other finding.",
+      "redistribution_note": "Kaggle competition data is subject to the competition rules. Review licensing before committing this file to a repository."
+    }
+  ],
+  "rejected_candidates": [
+    {
+      "file": "I:/HoloMed/DICOM-TestData/viewer-testdata-master/dcm/overlay/overlayJLS.dcm",
+      "reason": "InstitutionName is 'FU Berlin, Veterinärmedizin Düppel' (veterinary); likely not a human chest radiograph. Also JPEG-LS compressed with no installed decoder."
+    },
+    {
+      "file": "backend/tests/artifacts/public_cxr_sample.png",
+      "reason": "Not an image: a 14-byte text file containing '404: Not Found' from an earlier failed download. Left untouched."
+    },
+    {
+      "file": "torchxrayvision tests/Fake_MONOHR1.dcm",
+      "reason": "Synthetic; excluded from real-CXR validation."
+    }
+  ]
+}

@@ -1,7 +1,6 @@
 import { FileText, ScanLine, Sparkles, TrendingUp, Clock, ArrowRight, AlertCircle } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
 import { StatusBadge } from '@/components/StatusBadge';
-import { DemoDataBadge } from '@/components/DemoDataBadge';
 import { SectionHeader } from '@/components/SectionHeader';
 import { reportStatusLabels } from '@/lib/demo-data';
 import type { Report, ImagingStudy, AuditEvent, MedicalMeasurement } from '@/lib/types';
@@ -42,7 +41,6 @@ export function Dashboard({ reports, studies, measurements, auditEvents, patient
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold text-neutral-900 dark:text-white">Welcome back, {patientName.split(' ')[0]}</h2>
-            <DemoDataBadge />
           </div>
           <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">Here's your health overview for today</p>
         </div>

@@ -13,3 +13,13 @@ pytest==9.1.1
 pytest-asyncio==1.4.0
 python-jose[cryptography]==3.3.0
 passlib[argon2]==1.7.4
+
+# Vision AI service (backend/services/vision): chest radiograph screening model.
+# torch/torchvision are the CUDA 12.4 builds validated in Phases 1-3 (2.6.0+cu124 / 0.21.0+cu124).
+# No matplotlib: rendering uses numpy + Pillow. Grad-CAM is implemented in-house.
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.6.0
+torchvision==0.21.0
+torchxrayvision==1.5.4
+numpy==2.4.6
+pillow==12.3.0

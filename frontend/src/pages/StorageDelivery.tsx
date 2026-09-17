@@ -6,7 +6,6 @@ import {
 import { Card, CardHeader } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
-import { DemoDataBadge } from '@/components/DemoDataBadge';
 import type { StorageConnection, StorageProvider, ReportArtifact } from '@/lib/types';
 
 interface StorageDeliveryProps {
@@ -70,7 +69,7 @@ export function StorageDelivery({ storageConnections }: StorageDeliveryProps) {
     <div className="space-y-6">
       {/* Provider Cards */}
       <Card>
-        <CardHeader title="Storage Providers" subtitle="Choose your primary storage and delivery destinations" icon={<HardDrive className="h-4.5 w-4.5" />} action={<DemoDataBadge />} />
+        <CardHeader title="Storage Providers" subtitle="Choose your primary storage and delivery destinations" icon={<HardDrive className="h-4.5 w-4.5" />} />
         <div className="p-5">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {/* Connected */}

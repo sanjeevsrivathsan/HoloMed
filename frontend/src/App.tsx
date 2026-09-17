@@ -32,13 +32,9 @@ import { ClinicalView } from '@/pages/ClinicalView';
 import { PrivacyCenter } from '@/pages/PrivacyCenter';
 import { StorageDelivery } from '@/pages/StorageDelivery';
 import { Settings } from '@/pages/Settings';
-import {
-  demoPatient, demoReports, demoMeasurements,
-  demoTemplates, demoConsents, demoAuditEvents,
-  demoStorageConnections, demoSourceReferences,
-} from '@/lib/demo-data';
+
 import { api, ApiError, type StudyMeta, type PatientResponse } from '@/lib/api';
-import type { ImagingStudy, Template, Report, ReportStatus } from '@/lib/types';
+import type { ImagingStudy, Template, Report, ReportStatus, AuditEvent, MedicalMeasurement, ConsentRecord, StorageConnection, SourceReference } from '@/lib/types';
 
 // ── Map QIDO StudyMeta → frontend ImagingStudy shape ─────────────────────────
 
@@ -73,9 +69,21 @@ function Workspace() {
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [clinicalReportId, setClinicalReportId] = useState<string | null>(null);
   const [uploadStage, setUploadStage] = useState<UploadStage | null>(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 
-  // ── Templates (local state — no backend yet) ─────────────────────────────
-  const [templates, setTemplates] = useState<Template[]>(demoTemplates);
+  // ── Audit Logs (from backend) ──────────────────────────────────────────
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+
+  // ── Measurements (from backend) ──────────────────────────────────────────
+  const [measurements, setMeasurements] = useState<MedicalMeasurement[]>([]);
+
+  // ── Templates (from backend) ─────────────────────────────
+  const [templates, setTemplates] = useState<Template[]>([]);
+
+  // ── Consents & Storage Connections (from backend) ────────────────────────
+  const [consents, setConsents] = useState<ConsentRecord[]>([]);
+  const [storageConnections, setStorageConnections] = useState<StorageConnection[]>([]);
+  const [sourceReferences, setSourceReferences] = useState<SourceReference[]>([]);
 
   // ── Imaging studies — fetched from backend QIDO-RS ───────────────────────
   const [studies, setStudies] = useState<ImagingStudy[]>([]);
@@ -99,20 +107,33 @@ function Workspace() {
 
       // Fetch reports
       const reportsData = await api.get<any[]>('/api/v1/reports');
-      const mappedReports: Report[] = reportsData.map((r) => ({
-        id: String(r.id),
-        patientId: String(r.patient_id),
-        type: r.type,
-        title: r.title,
-        source: r.source,
-        hospital: r.hospital,
-        laboratory: r.laboratory,
-        department: r.department,
-        doctor: r.doctor,
-        date: r.report_date,
-        status: r.status as ReportStatus,
-        artifacts: [], // Server doesn't return artifacts yet
-      }));
+      const mappedReports: Report[] = reportsData.map(r => {
+        let summary;
+        if (r.summary) {
+          summary = {
+            id: String(r.summary.id),
+            reportId: String(r.id),
+            mode: r.summary.mode as any,
+            sections: typeof r.summary.sections === 'string' ? JSON.parse(r.summary.sections) : r.summary.sections,
+            createdAt: r.summary.created_at
+          };
+        }
+        return {
+          id: String(r.id),
+          patientId: String(r.patient_id),
+          title: r.title,
+          type: r.type as any,
+          source: r.source,
+          hospital: r.hospital,
+          laboratory: r.laboratory,
+          department: r.department,
+          doctor: r.doctor,
+          date: r.report_date,
+          status: r.status as ReportStatus,
+          artifacts: [],
+          summary
+        };
+      });
       setReports(mappedReports);
       if (!selectedReportId && mappedReports.length > 0) {
         setSelectedReportId(mappedReports[0].id);
@@ -123,11 +144,96 @@ function Workspace() {
       if (patients.length > 0) {
         setPatientDisplayName(patients[0].display_name);
       }
+
+      // Fetch audit logs
+      const auditData = await api.get<any[]>('/api/v1/audit');
+      const mappedAudit: AuditEvent[] = auditData.map(log => ({
+        id: String(log.id),
+        patientId: String(log.user_id),
+        eventType: log.action.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+        description: log.details || 'No details provided',
+        timestamp: log.timestamp,
+        actor: 'user'
+      }));
+      setAuditEvents(mappedAudit);
+
+      // Fetch measurements
+      const measData = await api.get<any[]>('/api/v1/measurements');
+      const mappedMeas: MedicalMeasurement[] = measData.map(m => ({
+        id: String(m.id),
+        reportId: m.report_id ? String(m.report_id) : '',
+        patientId: String(m.patient_id),
+        testName: m.test_name,
+        value: m.value,
+        unit: m.unit,
+        referenceRange: m.reference_range,
+        flag: m.flag,
+        reportDate: m.report_date,
+        hospital: m.hospital,
+        laboratory: m.laboratory,
+        department: m.department,
+        comments: m.comments,
+        sourceLocation: m.source_location
+      }));
+      setMeasurements(mappedMeas);
+
+      // Fetch templates
+      const tmplData = await api.get<any[]>('/api/v1/templates');
+      const mappedTmpls: Template[] = tmplData.map(t => ({
+        id: String(t.id),
+        name: t.name,
+        category: t.category as any,
+        description: t.description,
+        sections: typeof t.sections === 'string' ? JSON.parse(t.sections) : t.sections,
+        updatedAt: t.updated_at
+      }));
+      setTemplates(mappedTmpls);
+
+      // Fetch Consents
+      const consData = await api.get<any[]>('/api/v1/consents');
+      const mappedCons: ConsentRecord[] = consData.map(c => ({
+        id: String(c.id),
+        patientId: String(c.patient_id),
+        recipient: c.recipient,
+        purpose: c.purpose,
+        scope: c.scope as any,
+        issuedDate: c.issued_date,
+        expiryDate: c.expiry_date,
+        revoked: c.revoked
+      }));
+      setConsents(mappedCons);
+
+      // Fetch Storage Connections
+      const storageData = await api.get<any[]>('/api/v1/storage-connections');
+      const mappedStorage: StorageConnection[] = storageData.map(s => ({
+        provider: s.provider as any,
+        label: s.label,
+        status: s.status as any,
+        isPrimary: s.is_primary,
+        description: s.description
+      }));
+      setStorageConnections(mappedStorage);
+
+      // Fetch Source References
+      const srData = await api.get<any[]>('/api/v1/search/source-references');
+      const mappedSr: SourceReference[] = srData.map(sr => ({
+        id: String(sr.id),
+        reportId: String(sr.report_id),
+        label: sr.storage_provider || 'Document',
+        location: sr.storage_location || '',
+        type: sr.type as any
+      }));
+      setSourceReferences(mappedSr);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
       console.warn('[App] Could not load backend data:', err);
       setStudies([]);
       setReports([]);
+      setAuditEvents([]);
+      setMeasurements([]);
+      setTemplates([]);
+      setConsents([]);
+      setStorageConnections([]);
     } finally {
       setStudiesLoading(false);
       setReportsLoading(false);
@@ -161,45 +267,70 @@ function Workspace() {
   // ── Report upload (real API) ─────────
   const handleUpload = useCallback(async (file: File, _storage: string) => {
     setUploadStage('uploading');
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('title', file.name.replace(/\.[^/.]+$/, ""));
-    formData.append('type', 'Other');
-    
     try {
-      const response = await fetch('/api/v1/reports', {
-        method: 'POST',
-        body: formData,
-        // No headers needed, fetch will automatically set multipart/form-data boundary
-      });
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('title', file.name);
       
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
-      
-      setUploadStage('ready');
+      await api.post<any>('/api/v1/reports', formData);
       await fetchBackendData();
-      
-      setTimeout(() => setUploadStage(null), 2000);
+      setUploadStage('ready');
+      setTimeout(() => setUploadStage(null), 1000);
     } catch (err) {
-      console.error('[App] Upload failed:', err);
+      console.error('[App] Upload failed', err);
       setUploadStage('failed');
-      setTimeout(() => setUploadStage(null), 3000);
+      setTimeout(() => setUploadStage(null), 2000);
     }
   }, [fetchBackendData]);
 
-  // ── Template save (local state — no backend yet) ─────────────────────────
-  const handleSaveTemplate = useCallback((template: Template) => {
-    setTemplates((prev) => {
-      const existing = prev.findIndex((t) => t.id === template.id);
-      if (existing >= 0) {
-        const updated = [...prev];
-        updated[existing] = template;
-        return updated;
+  const handleGenerateSummary = async (reportId: string, mode: string) => {
+    setIsGeneratingSummary(true);
+    try {
+      const formData = new FormData();
+      formData.append('mode', mode);
+      await api.post<any>(`/api/v1/reports/${reportId}/summary`, formData);
+      await fetchBackendData(); // refresh reports to get the summary
+    } catch (err) {
+      console.error('[App] Failed to generate AI summary', err);
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
+
+  // ── Template save (calls API) ─────────────────────────
+  const handleSaveTemplate = useCallback(async (template: Template) => {
+    try {
+      const payload = {
+        name: template.name,
+        category: template.category,
+        description: template.description,
+        sections: JSON.stringify(template.sections)
+      };
+
+      let savedTemplate;
+      // If template ID doesn't look like a real DB ID (e.g. 'new-123' or missing), POST it
+      if (!template.id || template.id.startsWith('new') || template.id.startsWith('tpl_')) {
+        const res = await api.post<any>('/api/v1/templates', payload);
+        savedTemplate = { ...template, id: String(res.id), updatedAt: res.updated_at };
+      } else {
+        const res = await api.put<any>(`/api/v1/templates/${template.id}`, payload);
+        savedTemplate = { ...template, id: String(res.id), updatedAt: res.updated_at };
       }
-      return [...prev, template];
-    });
+
+      setTemplates((prev) => {
+        const existing = prev.findIndex((t) => t.id === savedTemplate.id);
+        if (existing >= 0) {
+          const updated = [...prev];
+          updated[existing] = savedTemplate;
+          return updated;
+        }
+        return [...prev, savedTemplate];
+      });
+      // Optionally re-fetch entirely
+      // await fetchBackendData();
+    } catch (err) {
+      console.error('[App] Failed to save template', err);
+    }
   }, []);
 
   // ── Render: while auth session is being restored, show nothing (no flash) ─
@@ -216,8 +347,8 @@ function Workspace() {
   }
 
   const clinicalReport = reports.find((r) => r.id === clinicalReportId) || null;
-  // Patient display name: prioritize backend patient, then auth user displayName, then demo fallback
-  const finalPatientName = patientDisplayName || (user ? user.displayName : demoPatient.fullName);
+  // Patient display name: prioritize backend patient, then auth user displayName, then default fallback
+  const finalPatientName = patientDisplayName || (user ? user.displayName : 'Patient');
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
@@ -259,8 +390,8 @@ function Workspace() {
             <Dashboard
               reports={reports}
               studies={studies}
-              measurements={demoMeasurements}
-              auditEvents={demoAuditEvents}
+              measurements={measurements}
+              auditEvents={auditEvents}
               patientName={finalPatientName}
               onNavigate={handleNavigate}
               onOpenReport={handleOpenReport}
@@ -274,19 +405,21 @@ function Workspace() {
               onUpload={handleUpload}
               uploadStage={uploadStage}
               onNavigateClinical={handleNavigateClinical}
+              onGenerateSummary={handleGenerateSummary}
+              isGeneratingSummary={isGeneratingSummary}
             />
           )}
           {currentPage === 'search' && (
             <HealthSearch
               reports={reports}
-              measurements={demoMeasurements}
-              sourceReferences={demoSourceReferences}
+              measurements={measurements}
+              sourceReferences={sourceReferences}
               onSelectReport={handleOpenReport}
             />
           )}
           {currentPage === 'timeline' && (
             <HealthTimeline
-              measurements={demoMeasurements}
+              measurements={measurements}
               reports={reports}
             />
           )}
@@ -308,21 +441,21 @@ function Workspace() {
           {currentPage === 'clinical' && (
             <ClinicalView
               report={clinicalReport}
-              measurements={demoMeasurements}
+              measurements={measurements}
               studies={studies}
               onOpenImaging={() => handleNavigate('imaging')}
             />
           )}
           {currentPage === 'privacy' && (
             <PrivacyCenter
-              consents={demoConsents}
-              auditEvents={demoAuditEvents}
-              storageConnections={demoStorageConnections}
+              consents={consents}
+              auditEvents={auditEvents}
+              storageConnections={storageConnections}
             />
           )}
           {currentPage === 'storage' && (
             <StorageDelivery
-              storageConnections={demoStorageConnections}
+              storageConnections={storageConnections}
             />
           )}
           {currentPage === 'settings' && <Settings />}

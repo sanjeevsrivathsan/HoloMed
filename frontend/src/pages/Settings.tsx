@@ -1,12 +1,12 @@
-import { useState } from 'react';
-import { Settings as SettingsIcon, Monitor, Sun, Moon, ScanLine, Cpu, Bell, User, Lock } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Settings as SettingsIcon, Monitor, Sun, Moon, ScanLine, Cpu, Bell, User, Lock, RefreshCw } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import type { AppTheme, ImagingTheme } from '@/lib/types';
-import { demoOllamaConfig } from '@/lib/demo-data';
+import { api } from '@/lib/api';
 
 export function Settings() {
   const { appTheme, setAppTheme, imagingTheme, setImagingTheme } = useTheme();
@@ -14,6 +14,26 @@ export function Settings() {
   const [notifEmail, setNotifEmail] = useState(true);
   const [notifPush, setNotifPush] = useState(false);
   const [notifSummary, setNotifSummary] = useState(true);
+  
+  const [ollamaConfig, setOllamaConfig] = useState<{baseUrl: string, model: string, available: boolean} | null>(null);
+  const [testingOllama, setTestingOllama] = useState(false);
+
+  useEffect(() => {
+    fetchOllamaConfig();
+  }, []);
+
+  const fetchOllamaConfig = async () => {
+    setTestingOllama(true);
+    try {
+      const config = await api.get<{baseUrl: string, model: string, available: boolean}>('/api/v1/ai/ollama/config');
+      setOllamaConfig(config);
+    } catch (err) {
+      console.error('Failed to fetch Ollama config', err);
+      setOllamaConfig({ baseUrl: 'Error', model: 'Error', available: false });
+    } finally {
+      setTestingOllama(false);
+    }
+  };
 
   const appThemeOptions: { value: AppTheme; label: string; icon: typeof Sun }[] = [
     { value: 'light', label: 'Light', icon: Sun },
@@ -83,26 +103,35 @@ export function Settings() {
             <div className="flex items-center justify-between rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
               <div>
                 <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Base URL</p>
-                <p className="text-sm text-neutral-900 dark:text-neutral-100 font-mono">{demoOllamaConfig.baseUrl}</p>
+                <p className="text-sm text-neutral-900 dark:text-neutral-100 font-mono">
+                  {ollamaConfig ? ollamaConfig.baseUrl : 'Loading...'}
+                </p>
               </div>
             </div>
             <div className="flex items-center justify-between rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
               <div>
                 <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Configured Model</p>
-                <p className="text-sm text-neutral-900 dark:text-neutral-100 font-mono">{demoOllamaConfig.model}</p>
+                <p className="text-sm text-neutral-900 dark:text-neutral-100 font-mono">
+                  {ollamaConfig ? ollamaConfig.model : 'Loading...'}
+                </p>
               </div>
             </div>
             <div className="flex items-center justify-between rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
               <div>
                 <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Status</p>
                 <div className="mt-1">
-                  <StatusBadge variant={demoOllamaConfig.available ? 'success' : 'warning'} pulse={!demoOllamaConfig.available}>
-                    {demoOllamaConfig.available ? 'Running' : 'Not running'}
-                  </StatusBadge>
+                  {!ollamaConfig ? (
+                    <StatusBadge variant="neutral">Checking...</StatusBadge>
+                  ) : (
+                    <StatusBadge variant={ollamaConfig.available ? 'success' : 'error'} pulse={ollamaConfig.available}>
+                      {ollamaConfig.available ? 'Running' : 'Not running or model missing'}
+                    </StatusBadge>
+                  )}
                 </div>
               </div>
-              <Button variant="outline" size="sm" disabled={!demoOllamaConfig.available}>
-                Test Connection
+              <Button variant="outline" size="sm" onClick={fetchOllamaConfig} disabled={testingOllama}>
+                {testingOllama ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {testingOllama ? 'Testing...' : 'Test Connection'}
               </Button>
             </div>
             <div className="flex items-start gap-2 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/50">

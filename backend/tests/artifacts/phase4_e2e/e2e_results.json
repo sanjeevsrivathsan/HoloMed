@@ -1,0 +1,337 @@
+{
+  "results": [
+    {
+      "name": "login succeeds and Imaging opens on AI Screening",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "OHIF Viewer mode still available",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "safety notice visible before any result",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NIH PNG validated client-side",
+      "ok": true,
+      "detail": "PNG · 178.3 KB"
+    },
+    {
+      "name": "selected image preview shown",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "loading state shown",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "screening completed",
+      "ok": true,
+      "detail": "237 ms (first request incl. model load)"
+    },
+    {
+      "name": "primary model finding = Cardiomegaly",
+      "ok": true,
+      "detail": "Cardiomegaly"
+    },
+    {
+      "name": "model score = 0.6600",
+      "ok": true,
+      "detail": "0.6600"
+    },
+    {
+      "name": "all 18 findings listed",
+      "ok": true,
+      "detail": "18"
+    },
+    {
+      "name": "finding names match the 18 model targets",
+      "ok": true,
+      "detail": "Cardiomegaly, Fibrosis, Infiltration, Pleural Thickening, Nodule, Atelectasis, Emphysema, Enlarged Cardiomediastinum, Effusion, Fracture, Mass, Pneumonia, Consolidation, Lung Opacity, Edema, Pneumothorax, Lung Lesion, Hernia"
+    },
+    {
+      "name": "findings sorted by model score",
+      "ok": true,
+      "detail": "0.66 0.533 0.5154 0.5103 0.5092 0.505 0.5036 0.4101 0.4029 0.3238 0.3226 0.3095 0.3059 0.2775 0.2743 0.2487 0.2223 0.0119"
+    },
+    {
+      "name": "no \"Normal\" or diagnostic wording in results",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "original image rendered from backend",
+      "ok": true,
+      "detail": "512x512"
+    },
+    {
+      "name": "Grad-CAM heatmap rendered 224x224",
+      "ok": true,
+      "detail": "224x224"
+    },
+    {
+      "name": "overlay view default at 45%",
+      "ok": true,
+      "detail": "0.45"
+    },
+    {
+      "name": "explanation targets Cardiomegaly",
+      "ok": true,
+      "detail": "Grad-CAM visual explanation for Cardiomegaly"
+    },
+    {
+      "name": "Original view hides heatmap",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Grad-CAM view shows heatmap fully",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "overlay opacity slider works",
+      "ok": true,
+      "detail": "0.7"
+    },
+    {
+      "name": "selecting Effusion requests a new explanation",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "backend explanation for requested target=Effusion",
+      "ok": true,
+      "detail": "explanation.target_pathology=Effusion, layer=features.denseblock4"
+    },
+    {
+      "name": "Grad-CAM changes for selected finding",
+      "ok": true,
+      "detail": "alt: Grad-CAM visual explanation for Effusion"
+    },
+    {
+      "name": "primary finding unchanged after selection",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Effusion row marked selected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "re-selecting primary finding uses cached explanation",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "safety notice text",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "\"Requires clinical review.\" shown",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "\"Requires Clinical Review\" badge shown",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Grad-CAM described as non-evidence",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "model info: name/weights/outputs/explanation",
+      "ok": true,
+      "detail": "Model | TorchXRayVision DenseNet-121 | Weights | densenet121-res224-all | Weights SHA-256 | 56524913dd16…a68899 | Output | 18 chest X-ray pathology targets | Explanation | Grad-CAM · features.denseblock4 | Model score | Non-diagnostic model output | Input | PNG · 512×512 | Analyzed | 9/17/2026, 9:02:47 AM"
+    },
+    {
+      "name": "no filesystem paths in page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "timing from backend shown (6 values)",
+      "ok": true,
+      "detail": "Preprocessing | 12 ms | Inference | 70 ms | Explanation (Grad-CAM) | 53 ms | Image rendering | 27 ms | Server total | 164 ms | Round trip (browser) | 188 ms |  | Measured for this request on the HoloMed server (cuda:0)."
+    },
+    {
+      "name": "no image data in local/session storage",
+      "ok": true,
+      "detail": "localStorage 2 chars, sessionStorage 2 chars"
+    },
+    {
+      "name": "browser only talks to HoloMed origin",
+      "ok": true,
+      "detail": "127.0.0.1:5173, fonts.googleapis.com, fonts.gstatic.com"
+    },
+    {
+      "name": "no console errors in main workflow (except pre-login /auth/me 401 probe)",
+      "ok": true,
+      "detail": "[{\"phase\":\"main\",\"status\":401,\"url\":\"/api/v1/auth/me\"},{\"phase\":\"main\",\"status\":401,\"url\":\"/api/v1/auth/me\"}]"
+    },
+    {
+      "name": "DICOM validated; placeholder shown before screening",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "SIIM DICOM primary = Mass 0.5589",
+      "ok": true,
+      "detail": "Mass 0.5589"
+    },
+    {
+      "name": "DICOM original rendered 1024x1024",
+      "ok": true,
+      "detail": "1024x1024"
+    },
+    {
+      "name": "DICOM heatmap rendered",
+      "ok": true,
+      "detail": "224"
+    },
+    {
+      "name": "DICOM input shows CR; no patient/study identifiers in results",
+      "ok": true,
+      "detail": "DICOM · 1024×1024 · CR"
+    },
+    {
+      "name": "18 findings for DICOM",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DICOM finding selection works (Pneumothorax)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no console errors during DICOM workflow",
+      "ok": true,
+      "detail": "[{\"phase\":\"main\",\"status\":401,\"url\":\"/api/v1/auth/me\"},{\"phase\":\"main\",\"status\":401,\"url\":\"/api/v1/auth/me\"}]"
+    },
+    {
+      "name": "invalid file (text as .png) rejected client-side",
+      "ok": true,
+      "detail": "Unsupported file type. Select a PNG, JPEG, or DICOM (.dcm) chest X-ray."
+    },
+    {
+      "name": "unsupported file (GIF) rejected",
+      "ok": true,
+      "detail": "Unsupported file type. Select a PNG, JPEG, or DICOM (.dcm) chest X-ray."
+    },
+    {
+      "name": "corrupt PNG → backend 400 → friendly message",
+      "ok": true,
+      "detail": "Image could not be read  The file appears to be corrupt, incomplete, or empty. Please select another image."
+    },
+    {
+      "name": "CT DICOM → backend 422 → friendly message",
+      "ok": true,
+      "detail": "Image not supported for screening  Screening requires a single-frame grayscale chest radiograph (DICOM CR/DX, PNG, or JPEG) at least 64 px on each side."
+    },
+    {
+      "name": "503 → \"temporarily unavailable\" message",
+      "ok": true,
+      "detail": "Screening unavailable  Screening service is temporarily unavailable. Please try again."
+    },
+    {
+      "name": "network failure → \"Backend unreachable\" message",
+      "ok": true,
+      "detail": "Backend unreachable  Cannot reach the HoloMed backend. Check your connection and that the server is running, then try again."
+    },
+    {
+      "name": "unauthenticated API request → 401",
+      "ok": true,
+      "detail": "401"
+    },
+    {
+      "name": "expired session → \"Session expired\" + sign-in action",
+      "ok": true,
+      "detail": "Session expired  Your session has ended. Please sign in again to run AI screening.  Sign in again"
+    },
+    {
+      "name": "error phase: only expected failed-request console entries",
+      "ok": true,
+      "detail": "5 entries; unexpected: "
+    },
+    {
+      "name": "real backend outage → friendly unavailable message",
+      "ok": true,
+      "detail": "Screening unavailable  Screening service is temporarily unavailable. Please try again."
+    },
+    {
+      "name": "no raw server/stack text shown",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "consoleErrors": {
+    "main": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ],
+    "errors": [
+      "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+      "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ],
+    "outage": [
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    ]
+  },
+  "failedResponses": [
+    {
+      "phase": "main",
+      "status": 401,
+      "url": "/api/v1/auth/me"
+    },
+    {
+      "phase": "main",
+      "status": 401,
+      "url": "/api/v1/auth/me"
+    },
+    {
+      "phase": "errors",
+      "status": 400,
+      "url": "/api/v1/vision/screen"
+    },
+    {
+      "phase": "errors",
+      "status": 422,
+      "url": "/api/v1/vision/screen"
+    },
+    {
+      "phase": "errors",
+      "status": 503,
+      "url": "/api/v1/vision/screen"
+    },
+    {
+      "phase": "errors",
+      "status": 401,
+      "url": "/api/v1/vision/screen"
+    },
+    {
+      "phase": "outage",
+      "status": 500,
+      "url": "/api/v1/vision/screen"
+    }
+  ],
+  "hosts": [
+    "127.0.0.1:5173",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com"
+  ]
+}

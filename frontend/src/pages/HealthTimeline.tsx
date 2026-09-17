@@ -5,7 +5,6 @@ import {
 import { Activity, Calendar, TrendingUp, Info } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
 import { StatusBadge } from '@/components/StatusBadge';
-import { DemoDataBadge } from '@/components/DemoDataBadge';
 import { EmptyState } from '@/components/States';
 import type { MedicalMeasurement, Report } from '@/lib/types';
 
@@ -71,7 +70,7 @@ export function HealthTimeline({ measurements, reports }: HealthTimelineProps) {
     <div className="space-y-6">
       {/* Metric Selector */}
       <Card>
-        <CardHeader title="Health Timeline" subtitle="Track your measurements over time" icon={<Activity className="h-4.5 w-4.5" />} action={<DemoDataBadge />} />
+        <CardHeader title="Health Timeline" subtitle="Track your measurements over time" icon={<Activity className="h-4.5 w-4.5" />} />
         <div className="px-5 pb-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex flex-wrap gap-1.5">

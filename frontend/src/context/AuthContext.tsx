@@ -31,6 +31,7 @@ interface AuthContextValue {
   role: Role;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => void;
   signOut: () => void;
   switchRole: (role: Role) => void;
@@ -87,9 +88,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(toProfile(me, role));
   }, [role]);
 
-  // ── Google sign-in (not wired to backend yet — placeholder) ──────────────
+  // ── Sign up ───────────────────────────────────────────────────────────────
+  const signUp = useCallback(async (email: string, password: string) => {
+    const params = new URLSearchParams({ email, password });
+    await api.postEmpty(`/api/v1/auth/register?${params.toString()}`);
+  }, []);
+
+  // ── Google sign-in ────────────────────────────────────────────────────────
   const signInWithGoogle = useCallback(() => {
-    console.warn('[AuthContext] Google sign-in is not yet implemented in the backend.');
+    window.location.href = '/api/v1/auth/google';
   }, []);
 
   // ── Sign out ──────────────────────────────────────────────────────────────
@@ -115,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role,
         loading,
         signIn,
+        signUp,
         signInWithGoogle,
         signOut,
         switchRole,

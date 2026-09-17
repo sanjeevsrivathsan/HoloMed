@@ -1,0 +1,504 @@
+{
+  "base_url": "http://127.0.0.1:8765",
+  "cases": {
+    "nih_png": {
+      "status": 200,
+      "input": {
+        "format": "png",
+        "width": 512,
+        "height": 512,
+        "source_mode": "L",
+        "bits_stored": 8,
+        "modality": null,
+        "transfer_syntax": null,
+        "preprocessing": [
+          "PNG decoded 512x512; grayscale (L) read; maxval=255",
+          "xrv.utils.normalize(maxval=255) -> [-1024, 1024]",
+          "XRayCenterCrop -> 512x512",
+          "bilinear resize -> 224x224",
+          "tensor [1, 1, 224, 224] float32"
+        ]
+      },
+      "primary_finding": {
+        "pathology": "Cardiomegaly",
+        "score": 0.6600351333618164
+      },
+      "findings": [
+        {
+          "pathology": "Cardiomegaly",
+          "score": 0.6600351333618164
+        },
+        {
+          "pathology": "Fibrosis",
+          "score": 0.5329694747924805
+        },
+        {
+          "pathology": "Infiltration",
+          "score": 0.5154485702514648
+        },
+        {
+          "pathology": "Pleural_Thickening",
+          "score": 0.5102686882019043
+        },
+        {
+          "pathology": "Nodule",
+          "score": 0.5091887712478638
+        },
+        {
+          "pathology": "Atelectasis",
+          "score": 0.5050351619720459
+        },
+        {
+          "pathology": "Emphysema",
+          "score": 0.5036364793777466
+        },
+        {
+          "pathology": "Enlarged Cardiomediastinum",
+          "score": 0.410076379776001
+        },
+        {
+          "pathology": "Effusion",
+          "score": 0.402875155210495
+        },
+        {
+          "pathology": "Fracture",
+          "score": 0.3237800598144531
+        },
+        {
+          "pathology": "Mass",
+          "score": 0.3226177394390106
+        },
+        {
+          "pathology": "Pneumonia",
+          "score": 0.30949667096138
+        },
+        {
+          "pathology": "Consolidation",
+          "score": 0.30589190125465393
+        },
+        {
+          "pathology": "Lung Opacity",
+          "score": 0.2774786353111267
+        },
+        {
+          "pathology": "Edema",
+          "score": 0.2743000090122223
+        },
+        {
+          "pathology": "Pneumothorax",
+          "score": 0.24873068928718567
+        },
+        {
+          "pathology": "Lung Lesion",
+          "score": 0.2222961187362671
+        },
+        {
+          "pathology": "Hernia",
+          "score": 0.011932753957808018
+        }
+      ],
+      "explanation": {
+        "method": "Grad-CAM",
+        "target_pathology": "Cardiomegaly",
+        "target_score": 0.6600351333618164,
+        "target_layer": "features.denseblock4",
+        "description": "Grad-CAM visual explanation: highlights image regions that most influenced the selected model output. It is an attention visualization, not proof or localization of disease, and requires clinical review.",
+        "heatmap_size": [
+          224,
+          224
+        ],
+        "overlay_size": [
+          512,
+          512
+        ]
+      },
+      "model": {
+        "name": "TorchXRayVision DenseNet-121",
+        "weights": "densenet121-res224-all",
+        "weight_sha256": "56524913dd16a906422e8d8b66a7a5c46be1d82eb7ac012d8103776f1aa68899",
+        "targets": 18,
+        "device": "cuda:0 (NVIDIA GeForce RTX 3070 Ti)"
+      },
+      "safety": {
+        "message": "AI-generated screening assistance \u2014 not a diagnostic determination. Consult a qualified healthcare professional.",
+        "requires_clinical_review": true
+      },
+      "first_request_http_ms": 3433.164,
+      "http_latency": {
+        "n": 30,
+        "median_ms": 99.843,
+        "p95_ms": 118.027,
+        "mean_ms": 102.465,
+        "max_ms": 121.159
+      },
+      "server_timing": {
+        "preprocessing_ms": {
+          "n": 30,
+          "median_ms": 5.378,
+          "p95_ms": 6.838,
+          "mean_ms": 5.609,
+          "max_ms": 8.996
+        },
+        "inference_ms": {
+          "n": 30,
+          "median_ms": 16.367,
+          "p95_ms": 20.663,
+          "mean_ms": 17.124,
+          "max_ms": 24.459
+        },
+        "gradcam_ms": {
+          "n": 30,
+          "median_ms": 41.928,
+          "p95_ms": 51.038,
+          "mean_ms": 43.717,
+          "max_ms": 51.062
+        },
+        "rendering_ms": {
+          "n": 30,
+          "median_ms": 22.476,
+          "p95_ms": 25.09,
+          "mean_ms": 22.256,
+          "max_ms": 27.713
+        },
+        "total_ms": {
+          "n": 30,
+          "median_ms": 87.12,
+          "p95_ms": 101.957,
+          "mean_ms": 89.102,
+          "max_ms": 105.181
+        }
+      },
+      "response_kb": 556.1,
+      "nvidia_smi_used_mb_before": 1288.0,
+      "nvidia_smi_used_mb_after": 1763.0
+    },
+    "siim_dicom": {
+      "status": 200,
+      "input": {
+        "format": "dicom",
+        "width": 1024,
+        "height": 1024,
+        "source_mode": "MONOCHROME2",
+        "bits_stored": 8,
+        "modality": "CR",
+        "transfer_syntax": "JPEG Baseline (Process 1)",
+        "preprocessing": [
+          "DICOM decoded 1024x1024 (JPEG Baseline (Process 1)), range [0, 254]",
+          "MONOCHROME2: no inversion",
+          "maxval=255 (BitsStored=8)",
+          "xrv.utils.normalize(maxval=255) -> [-1024, 1024]",
+          "XRayCenterCrop -> 1024x1024",
+          "bilinear resize -> 224x224",
+          "tensor [1, 1, 224, 224] float32"
+        ]
+      },
+      "primary_finding": {
+        "pathology": "Mass",
+        "score": 0.5589016079902649
+      },
+      "findings": [
+        {
+          "pathology": "Mass",
+          "score": 0.5589016079902649
+        },
+        {
+          "pathology": "Pleural_Thickening",
+          "score": 0.558456301689148
+        },
+        {
+          "pathology": "Atelectasis",
+          "score": 0.5544041395187378
+        },
+        {
+          "pathology": "Fibrosis",
+          "score": 0.5332093238830566
+        },
+        {
+          "pathology": "Nodule",
+          "score": 0.5298770666122437
+        },
+        {
+          "pathology": "Infiltration",
+          "score": 0.5257329940795898
+        },
+        {
+          "pathology": "Fracture",
+          "score": 0.518618106842041
+        },
+        {
+          "pathology": "Consolidation",
+          "score": 0.5100206136703491
+        },
+        {
+          "pathology": "Pneumothorax",
+          "score": 0.5030280351638794
+        },
+        {
+          "pathology": "Emphysema",
+          "score": 0.500759482383728
+        },
+        {
+          "pathology": "Lung Opacity",
+          "score": 0.3294806480407715
+        },
+        {
+          "pathology": "Pneumonia",
+          "score": 0.289704829454422
+        },
+        {
+          "pathology": "Effusion",
+          "score": 0.23878765106201172
+        },
+        {
+          "pathology": "Enlarged Cardiomediastinum",
+          "score": 0.15629003942012787
+        },
+        {
+          "pathology": "Hernia",
+          "score": 0.05733262002468109
+        },
+        {
+          "pathology": "Cardiomegaly",
+          "score": 0.05235849320888519
+        },
+        {
+          "pathology": "Edema",
+          "score": 0.011855912394821644
+        },
+        {
+          "pathology": "Lung Lesion",
+          "score": 0.003192358883097768
+        }
+      ],
+      "explanation": {
+        "method": "Grad-CAM",
+        "target_pathology": "Mass",
+        "target_score": 0.5589016079902649,
+        "target_layer": "features.denseblock4",
+        "description": "Grad-CAM visual explanation: highlights image regions that most influenced the selected model output. It is an attention visualization, not proof or localization of disease, and requires clinical review.",
+        "heatmap_size": [
+          224,
+          224
+        ],
+        "overlay_size": [
+          1024,
+          1024
+        ]
+      },
+      "model": {
+        "name": "TorchXRayVision DenseNet-121",
+        "weights": "densenet121-res224-all",
+        "weight_sha256": "56524913dd16a906422e8d8b66a7a5c46be1d82eb7ac012d8103776f1aa68899",
+        "targets": 18,
+        "device": "cuda:0 (NVIDIA GeForce RTX 3070 Ti)"
+      },
+      "safety": {
+        "message": "AI-generated screening assistance \u2014 not a diagnostic determination. Consult a qualified healthcare professional.",
+        "requires_clinical_review": true
+      },
+      "first_request_http_ms": 182.051,
+      "http_latency": {
+        "n": 30,
+        "median_ms": 184.696,
+        "p95_ms": 202.658,
+        "mean_ms": 186.741,
+        "max_ms": 207.28
+      },
+      "server_timing": {
+        "preprocessing_ms": {
+          "n": 30,
+          "median_ms": 18.083,
+          "p95_ms": 19.236,
+          "mean_ms": 18.051,
+          "max_ms": 19.422
+        },
+        "inference_ms": {
+          "n": 30,
+          "median_ms": 16.156,
+          "p95_ms": 19.8,
+          "mean_ms": 16.584,
+          "max_ms": 21.552
+        },
+        "gradcam_ms": {
+          "n": 30,
+          "median_ms": 44.528,
+          "p95_ms": 60.449,
+          "mean_ms": 47.794,
+          "max_ms": 64.853
+        },
+        "rendering_ms": {
+          "n": 30,
+          "median_ms": 83.085,
+          "p95_ms": 87.489,
+          "mean_ms": 82.555,
+          "max_ms": 88.045
+        },
+        "total_ms": {
+          "n": 30,
+          "median_ms": 163.117,
+          "p95_ms": 181.986,
+          "mean_ms": 165.566,
+          "max_ms": 185.301
+        }
+      },
+      "response_kb": 1852.5,
+      "nvidia_smi_used_mb_before": 1763.0,
+      "nvidia_smi_used_mb_after": 1695.0
+    }
+  },
+  "audit": {
+    "vision_screen_entries": 62,
+    "distinct_details": [
+      "{\"input_format\": \"dicom\", \"target_pathology\": \"Mass\", \"weights\": \"densenet121-res224-all\"}",
+      "{\"input_format\": \"png\", \"target_pathology\": \"Cardiomegaly\", \"weights\": \"densenet121-res224-all\"}"
+    ]
+  },
+  "checks": [
+    {
+      "check": "health endpoint 200",
+      "pass": true,
+      "detail": "{'status': 'healthy'}"
+    },
+    {
+      "check": "vision route registered in OpenAPI",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "unauthenticated request rejected (401)",
+      "pass": true,
+      "detail": "401"
+    },
+    {
+      "check": "register",
+      "pass": true,
+      "detail": "201"
+    },
+    {
+      "check": "login sets session cookie",
+      "pass": true,
+      "detail": "200"
+    },
+    {
+      "check": "nih_png: HTTP 200",
+      "pass": true,
+      "detail": "200"
+    },
+    {
+      "check": "nih_png: response matches VisionScreenResponse schema",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: 18 findings, all scores in [0,1]",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: primary finding is highest score",
+      "pass": true,
+      "detail": "Cardiomegaly 0.6600"
+    },
+    {
+      "check": "nih_png: model sha256 + weights",
+      "pass": true,
+      "detail": "cuda:0 (NVIDIA GeForce RTX 3070 Ti)"
+    },
+    {
+      "check": "nih_png: Grad-CAM via HTTP",
+      "pass": true,
+      "detail": "target=Cardiomegaly heatmap=(224, 224)"
+    },
+    {
+      "check": "nih_png: overlay decodes",
+      "pass": true,
+      "detail": "(512, 512)"
+    },
+    {
+      "check": "nih_png: safety notice",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: timing present",
+      "pass": true,
+      "detail": "preprocessing_ms=15.043 inference_ms=23.508 gradcam_ms=68.256 rendering_ms=25.213 total_ms=1113.499"
+    },
+    {
+      "check": "nih_png: no path/filename/patient metadata leakage",
+      "pass": true,
+      "detail": "none found"
+    },
+    {
+      "check": "nih_png: no prohibited wording",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "check": "siim_dicom: HTTP 200",
+      "pass": true,
+      "detail": "200"
+    },
+    {
+      "check": "siim_dicom: response matches VisionScreenResponse schema",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: 18 findings, all scores in [0,1]",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: primary finding is highest score",
+      "pass": true,
+      "detail": "Mass 0.5589"
+    },
+    {
+      "check": "siim_dicom: model sha256 + weights",
+      "pass": true,
+      "detail": "cuda:0 (NVIDIA GeForce RTX 3070 Ti)"
+    },
+    {
+      "check": "siim_dicom: Grad-CAM via HTTP",
+      "pass": true,
+      "detail": "target=Mass heatmap=(224, 224)"
+    },
+    {
+      "check": "siim_dicom: overlay decodes",
+      "pass": true,
+      "detail": "(1024, 1024)"
+    },
+    {
+      "check": "siim_dicom: safety notice",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: timing present",
+      "pass": true,
+      "detail": "preprocessing_ms=16.845 inference_ms=15.921 gradcam_ms=39.942 rendering_ms=87.132 total_ms=160.386"
+    },
+    {
+      "check": "siim_dicom: no path/filename/patient metadata leakage",
+      "pass": true,
+      "detail": "none found"
+    },
+    {
+      "check": "siim_dicom: no prohibited wording",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "check": "audit log records vision_screen entries",
+      "pass": true,
+      "detail": "62"
+    },
+    {
+      "check": "audit details contain no image data or metadata",
+      "pass": true,
+      "detail": "['{\"input_format\": \"dicom\", \"target_pathology\": \"Mass\", \"weights\": \"densenet121-res224-all\"}', '{\"input_format\": \"png\", \"target_pathology\": \"Cardiomegaly\", \"weights\": \"densenet121-res224-all\"}']"
+    }
+  ],
+  "status": "PASS"
+}

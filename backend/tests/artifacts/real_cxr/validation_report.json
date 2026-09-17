@@ -1,0 +1,757 @@
+{
+  "phase": "Phase 2 \u2014 Real Chest X-Ray Validation",
+  "banner": "Research/Engineering Validation \u2014 Not a Diagnostic Result",
+  "status": "PASS",
+  "run_utc": "2026-09-17T01:30:48Z",
+  "system": {
+    "python": "3.11.16",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "cpu": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD",
+    "torch": "2.6.0+cu124",
+    "torchxrayvision": "1.5.4",
+    "pydicom": "3.0.2",
+    "cuda_available": true,
+    "device": "cuda:0",
+    "cuda_runtime": "12.4",
+    "cudnn": 90100,
+    "gpu": "NVIDIA GeForce RTX 3070 Ti",
+    "gpu_total_memory_gb": 8.0
+  },
+  "model": {
+    "architecture": "TorchXRayVision DenseNet-121 (densenet121, growth 32, blocks 6/12/24/16, 1 input channel)",
+    "weights": "densenet121-res224-all",
+    "local_weights": "I:\\HoloMed\\HoloMed-D\\backend\\models\\weights\\densenet121-res224-all.pt",
+    "local_sha256": "56524913dd16a906422e8d8b66a7a5c46be1d82eb7ac012d8103776f1aa68899",
+    "xrv_loaded_file": "%USERPROFILE%\\.torchxrayvision\\models_data/nih-pc-chex-mimic_ch-google-openi-kaggle-densenet121-d121-tw-lr001-rot45-tr15-sc15-seed0-best.pt",
+    "xrv_loaded_sha256": "56524913dd16a906422e8d8b66a7a5c46be1d82eb7ac012d8103776f1aa68899",
+    "weights_url": "https://github.com/mlmed/torchxrayvision/releases/download/v1/nih-pc-chex-mimic_ch-google-openi-kaggle-densenet121-d121-tw-lr001-rot45-tr15-sc15-seed0-best.pt",
+    "parameters": 6966034,
+    "targets": [
+      "Atelectasis",
+      "Consolidation",
+      "Infiltration",
+      "Pneumothorax",
+      "Edema",
+      "Emphysema",
+      "Fibrosis",
+      "Effusion",
+      "Pneumonia",
+      "Pleural_Thickening",
+      "Cardiomegaly",
+      "Nodule",
+      "Mass",
+      "Hernia",
+      "Lung Lesion",
+      "Fracture",
+      "Lung Opacity",
+      "Enlarged Cardiomediastinum"
+    ],
+    "op_threshs": [
+      0.07422871887683868,
+      0.0382908433675766,
+      0.09814756363630295,
+      0.00981184747070074,
+      0.023601073771715164,
+      0.0022490357514470816,
+      0.01006072387099266,
+      0.10324661433696747,
+      0.056810736656188965,
+      0.026791652664542198,
+      0.0503181554377079,
+      0.023985857143998146,
+      0.019395029172301292,
+      0.04288976639509201,
+      0.05336962267756462,
+      0.03597581386566162,
+      0.20204691588878632,
+      0.05015312135219574
+    ],
+    "load_ms": 246.819
+  },
+  "cases": [
+    {
+      "key": "nih_png",
+      "role": "primary",
+      "source_file": "source/00000001_000.png",
+      "dataset": "NIH ChestX-ray14 (NIH Clinical Center)",
+      "format": "png",
+      "ingestion": {
+        "reader": "PIL",
+        "mode": "L",
+        "size": [
+          512,
+          512
+        ],
+        "steps": [
+          "grayscale PNG read (L), maxval=255"
+        ]
+      },
+      "preprocessing": {
+        "path": [
+          "grayscale PNG read (L), maxval=255",
+          "xrv.utils.normalize(img, maxval=255) -> [-1024, 1024]",
+          "xrv.datasets.XRayCenterCrop -> 512x512 (y0=0, x0=0)",
+          "torch.nn.functional.interpolate(bilinear, align_corners=False) -> 224x224",
+          "tensor [1, 1, 224, 224] float32"
+        ],
+        "tensor_shape": [
+          1,
+          1,
+          224,
+          224
+        ],
+        "tensor_min": -1024.0,
+        "tensor_max": 1016.9928588867188,
+        "tensor_mean": 5.118871688842773,
+        "tensor_std": 540.6622924804688
+      },
+      "scores": {
+        "Atelectasis": 0.5050351619720459,
+        "Consolidation": 0.30589190125465393,
+        "Infiltration": 0.5154485702514648,
+        "Pneumothorax": 0.24873068928718567,
+        "Edema": 0.2743000090122223,
+        "Emphysema": 0.5036364793777466,
+        "Fibrosis": 0.5329694747924805,
+        "Effusion": 0.402875155210495,
+        "Pneumonia": 0.30949667096138,
+        "Pleural_Thickening": 0.5102686882019043,
+        "Cardiomegaly": 0.6600351333618164,
+        "Nodule": 0.5091887712478638,
+        "Mass": 0.3226177394390106,
+        "Hernia": 0.011932753957808018,
+        "Lung Lesion": 0.2222961187362671,
+        "Fracture": 0.3237800598144531,
+        "Lung Opacity": 0.2774786353111267,
+        "Enlarged Cardiomediastinum": 0.410076379776001
+      },
+      "ranked": [
+        "Cardiomegaly",
+        "Fibrosis",
+        "Infiltration",
+        "Pleural_Thickening",
+        "Nodule",
+        "Atelectasis",
+        "Emphysema",
+        "Enlarged Cardiomediastinum",
+        "Effusion",
+        "Fracture",
+        "Mass",
+        "Pneumonia",
+        "Consolidation",
+        "Lung Opacity",
+        "Edema",
+        "Pneumothorax",
+        "Lung Lesion",
+        "Hernia"
+      ],
+      "gradcam": {
+        "target": "Cardiomegaly",
+        "target_index": 10,
+        "target_score": 0.6600351333618164,
+        "selection": "highest-scoring valid model output",
+        "layer": "features.denseblock4",
+        "target_score_in_grad_pass": 0.6600351333618164,
+        "activation_shape": [
+          1,
+          1024,
+          7,
+          7
+        ],
+        "gradient_shape": [
+          1,
+          1024,
+          7,
+          7
+        ],
+        "gradient_norm": 0.01254674419760704,
+        "cam_raw_min": 0.0,
+        "cam_raw_max": 0.015096127055585384,
+        "fraction_pixels_above_0.2": 0.21334901147959184,
+        "contrast_target": "Hernia",
+        "corr_with_contrast_target_cam": -0.34098199564943305
+      },
+      "timing": {
+        "ingestion": {
+          "n": 20,
+          "mean_ms": 1.89,
+          "median_ms": 1.847,
+          "p95_ms": 2.161,
+          "min_ms": 1.634,
+          "max_ms": 2.447
+        },
+        "preprocessing": {
+          "n": 20,
+          "mean_ms": 1.221,
+          "median_ms": 1.232,
+          "p95_ms": 1.346,
+          "min_ms": 1.099,
+          "max_ms": 1.464
+        },
+        "inference_cold_first_call_ms": 302.714,
+        "inference": {
+          "n": 100,
+          "mean_ms": 14.317,
+          "median_ms": 13.778,
+          "p95_ms": 18.256,
+          "min_ms": 12.937,
+          "max_ms": 27.453
+        },
+        "gradcam": {
+          "n": 20,
+          "mean_ms": 36.163,
+          "median_ms": 36.035,
+          "p95_ms": 38.324,
+          "min_ms": 34.557,
+          "max_ms": 38.586
+        },
+        "end_to_end_single_pass_ms": 68.343,
+        "notes": "20 warm-up inferences + 3 warm-up Grad-CAM passes; CUDA synchronized before and after each timed section. End-to-end = decode + preprocess + H2D + inference + Grad-CAM (no model load, no file I/O for artifacts)."
+      },
+      "gpu_memory": {
+        "baseline_allocated_mb": 70.03,
+        "inference_peak_allocated_mb": 77.88,
+        "gradcam_peak_allocated_mb": 177.22,
+        "peak_reserved_mb": 190.0
+      },
+      "dataset_annotation": {
+        "available": true,
+        "source_file": "torchxrayvision/data/Data_Entry_2017_v2020.csv.gz",
+        "finding_labels": [
+          "Cardiomegaly"
+        ],
+        "view_position": "PA",
+        "original_size": [
+          2682,
+          2749
+        ],
+        "related_model_outputs": [
+          "Cardiomegaly"
+        ],
+        "caveat": "NIH ChestX-ray14 labels were derived from radiology reports by NLP/text mining; they are not radiologist-confirmed per-image ground truth."
+      },
+      "annotation_statement": "The dataset annotation for this image indicates Cardiomegaly, while the model produced: Cardiomegaly score = 0.6600. A single image cannot establish accuracy.",
+      "artifacts": {
+        "original": "backend/tests/artifacts/real_cxr/original_real_cxr.png",
+        "preprocessed": "backend/tests/artifacts/real_cxr/real_cxr_preprocessed.png",
+        "heatmap": "backend/tests/artifacts/real_cxr/real_cxr_gradcam_heatmap.png",
+        "overlay": "backend/tests/artifacts/real_cxr/real_cxr_gradcam_overlay.png",
+        "composite": "backend/tests/artifacts/real_cxr/real_cxr_validation_composite.png",
+        "scores": "backend/tests/artifacts/real_cxr/real_cxr_scores.json"
+      },
+      "source_sha256_before": "c8cbe59e6b9b186060dc68e63965658fa6b5b3ada6648d25c189b8b69b43cd4c",
+      "source_sha256_after": "c8cbe59e6b9b186060dc68e63965658fa6b5b3ada6648d25c189b8b69b43cd4c"
+    },
+    {
+      "key": "siim_dicom",
+      "role": "secondary (DICOM ingestion path)",
+      "source_file": "source/1.2.276.0.7230010.3.1.4.8323329.6904.1517875201.850819.dcm",
+      "dataset": "SIIM-ACR Pneumothorax Segmentation (images derived from NIH ChestX-ray14)",
+      "format": "dicom",
+      "ingestion": {
+        "reader": "pydicom 3.0.2",
+        "transfer_syntax": "JPEG Baseline (Process 1)",
+        "modality": "CR",
+        "body_part": "CHEST",
+        "view_position": "PA",
+        "photometric": "MONOCHROME2",
+        "rows": 1024,
+        "columns": 1024,
+        "bits_stored": 8,
+        "samples_per_pixel": 1,
+        "steps": [
+          "pixel_array decoded (1024, 1024) range [0, 254]",
+          "no Modality LUT / rescale present",
+          "no VOI LUT / window present",
+          "MONOCHROME2: no inversion",
+          "maxval=255 (BitsStored=8)"
+        ]
+      },
+      "preprocessing": {
+        "path": [
+          "pixel_array decoded (1024, 1024) range [0, 254]",
+          "no Modality LUT / rescale present",
+          "no VOI LUT / window present",
+          "MONOCHROME2: no inversion",
+          "maxval=255 (BitsStored=8)",
+          "xrv.utils.normalize(img, maxval=255) -> [-1024, 1024]",
+          "xrv.datasets.XRayCenterCrop -> 1024x1024 (y0=0, x0=0)",
+          "torch.nn.functional.interpolate(bilinear, align_corners=False) -> 224x224",
+          "tensor [1, 1, 224, 224] float32"
+        ],
+        "tensor_shape": [
+          1,
+          1,
+          224,
+          224
+        ],
+        "tensor_min": -983.2694702148438,
+        "tensor_max": 941.684814453125,
+        "tensor_mean": 266.3187255859375,
+        "tensor_std": 431.10235595703125
+      },
+      "scores": {
+        "Atelectasis": 0.5544041395187378,
+        "Consolidation": 0.5100206136703491,
+        "Infiltration": 0.5257329940795898,
+        "Pneumothorax": 0.5030280351638794,
+        "Edema": 0.011855912394821644,
+        "Emphysema": 0.500759482383728,
+        "Fibrosis": 0.5332093238830566,
+        "Effusion": 0.23878765106201172,
+        "Pneumonia": 0.289704829454422,
+        "Pleural_Thickening": 0.558456301689148,
+        "Cardiomegaly": 0.05235849320888519,
+        "Nodule": 0.5298770666122437,
+        "Mass": 0.5589016079902649,
+        "Hernia": 0.05733262002468109,
+        "Lung Lesion": 0.003192358883097768,
+        "Fracture": 0.518618106842041,
+        "Lung Opacity": 0.3294806480407715,
+        "Enlarged Cardiomediastinum": 0.15629003942012787
+      },
+      "ranked": [
+        "Mass",
+        "Pleural_Thickening",
+        "Atelectasis",
+        "Fibrosis",
+        "Nodule",
+        "Infiltration",
+        "Fracture",
+        "Consolidation",
+        "Pneumothorax",
+        "Emphysema",
+        "Lung Opacity",
+        "Pneumonia",
+        "Effusion",
+        "Enlarged Cardiomediastinum",
+        "Hernia",
+        "Cardiomegaly",
+        "Edema",
+        "Lung Lesion"
+      ],
+      "gradcam": {
+        "target": "Mass",
+        "target_index": 12,
+        "target_score": 0.5589016079902649,
+        "selection": "highest-scoring valid model output",
+        "layer": "features.denseblock4",
+        "target_score_in_grad_pass": 0.5589016079902649,
+        "activation_shape": [
+          1,
+          1024,
+          7,
+          7
+        ],
+        "gradient_shape": [
+          1,
+          1024,
+          7,
+          7
+        ],
+        "gradient_norm": 0.006559021770954132,
+        "cam_raw_min": 0.0,
+        "cam_raw_max": 0.0062130531296133995,
+        "fraction_pixels_above_0.2": 0.4657007334183674,
+        "contrast_target": "Lung Lesion",
+        "corr_with_contrast_target_cam": 0.055838162537291604
+      },
+      "timing": {
+        "ingestion": {
+          "n": 20,
+          "mean_ms": 6.416,
+          "median_ms": 6.472,
+          "p95_ms": 7.035,
+          "min_ms": 5.342,
+          "max_ms": 7.638
+        },
+        "preprocessing": {
+          "n": 20,
+          "mean_ms": 5.638,
+          "median_ms": 5.612,
+          "p95_ms": 6.258,
+          "min_ms": 4.664,
+          "max_ms": 6.383
+        },
+        "inference_cold_first_call_ms": 15.633,
+        "inference": {
+          "n": 100,
+          "mean_ms": 13.78,
+          "median_ms": 13.729,
+          "p95_ms": 14.62,
+          "min_ms": 13.009,
+          "max_ms": 15.85
+        },
+        "gradcam": {
+          "n": 20,
+          "mean_ms": 36.285,
+          "median_ms": 36.106,
+          "p95_ms": 37.612,
+          "min_ms": 34.337,
+          "max_ms": 39.58
+        },
+        "end_to_end_single_pass_ms": 68.211,
+        "notes": "20 warm-up inferences + 3 warm-up Grad-CAM passes; CUDA synchronized before and after each timed section. End-to-end = decode + preprocess + H2D + inference + Grad-CAM (no model load, no file I/O for artifacts)."
+      },
+      "gpu_memory": {
+        "baseline_allocated_mb": 70.03,
+        "inference_peak_allocated_mb": 77.88,
+        "gradcam_peak_allocated_mb": 177.22,
+        "peak_reserved_mb": 190.0
+      },
+      "dataset_annotation": {
+        "available": true,
+        "source_file": "torchxrayvision/data/siim-pneumothorax-train-rle.csv.gz",
+        "finding_labels": [
+          "no pneumothorax (EncodedPixels = -1)"
+        ],
+        "encoded_pixels": [
+          "-1"
+        ],
+        "related_model_outputs": [
+          "Pneumothorax"
+        ],
+        "caveat": "SIIM-ACR annotates pneumothorax only; this says nothing about other findings."
+      },
+      "annotation_statement": "The dataset annotation for this image indicates no pneumothorax (EncodedPixels = -1), while the model produced: Pneumothorax score = 0.5030. A single image cannot establish accuracy.",
+      "artifacts": {
+        "original": "backend/tests/artifacts/real_cxr/siim_dicom_original_real_cxr.png",
+        "preprocessed": "backend/tests/artifacts/real_cxr/siim_dicom_real_cxr_preprocessed.png",
+        "heatmap": "backend/tests/artifacts/real_cxr/siim_dicom_real_cxr_gradcam_heatmap.png",
+        "overlay": "backend/tests/artifacts/real_cxr/siim_dicom_real_cxr_gradcam_overlay.png",
+        "composite": "backend/tests/artifacts/real_cxr/siim_dicom_real_cxr_validation_composite.png",
+        "scores": "backend/tests/artifacts/real_cxr/siim_dicom_real_cxr_scores.json"
+      },
+      "source_sha256_before": "13d378bfe1af0724e8cbe51adde36882cfdc6a69361c8a48ac30f688c3af7613",
+      "source_sha256_after": "13d378bfe1af0724e8cbe51adde36882cfdc6a69361c8a48ac30f688c3af7613"
+    }
+  ],
+  "checks": [
+    {
+      "check": "provenance.json present",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "local weights SHA-256 matches validated value",
+      "pass": true,
+      "detail": "56524913dd16a906422e8d8b66a7a5c46be1d82eb7ac012d8103776f1aa68899"
+    },
+    {
+      "check": "weights file loaded by xrv is byte-identical to local weights",
+      "pass": true,
+      "detail": "%USERPROFILE%\\.torchxrayvision\\models_data/nih-pc-chex-mimic_ch-google-openi-kaggle-densenet121-d121-tw-lr001-rot45-tr15-sc15-seed0-best.pt"
+    },
+    {
+      "check": "architecture is TorchXRayVision DenseNet-121",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "18 model targets match expected list",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "op_threshs present (output = sigmoid + op_norm)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "model on expected device",
+      "pass": true,
+      "detail": "cuda:0"
+    },
+    {
+      "check": "nih_png: source SHA-256 matches provenance (before)",
+      "pass": true,
+      "detail": "c8cbe59e6b9b186060dc68e63965658fa6b5b3ada6648d25c189b8b69b43cd4c"
+    },
+    {
+      "check": "nih_png: original stored read-only",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: decoded 2D grayscale",
+      "pass": true,
+      "detail": "shape=(512, 512)"
+    },
+    {
+      "check": "nih_png: pixel range within [0, maxval]",
+      "pass": true,
+      "detail": "[0, 255] maxval=255"
+    },
+    {
+      "check": "nih_png: 224x224 tensor",
+      "pass": true,
+      "detail": "[1, 1, 224, 224]"
+    },
+    {
+      "check": "nih_png: tensor has no NaN/Inf",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: tensor within xrv range [-1024, 1024]",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: 18 outputs",
+      "pass": true,
+      "detail": "18"
+    },
+    {
+      "check": "nih_png: scores finite",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: scores in [0, 1]",
+      "pass": true,
+      "detail": "[0.0119, 0.6600]"
+    },
+    {
+      "check": "nih_png: target is a real model output",
+      "pass": true,
+      "detail": "Cardiomegaly [10]"
+    },
+    {
+      "check": "nih_png: heatmap 224x224",
+      "pass": true,
+      "detail": "(224, 224)"
+    },
+    {
+      "check": "nih_png: heatmap finite",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: non-zero gradient",
+      "pass": true,
+      "detail": "0.0125467"
+    },
+    {
+      "check": "nih_png: non-trivial activation",
+      "pass": true,
+      "detail": "raw max=0.0150961, 21.3% of pixels > 0.2"
+    },
+    {
+      "check": "nih_png: grad pass score equals inference score",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: heatmap is class-specific (differs from lowest-scoring target)",
+      "pass": true,
+      "detail": "corr vs Hernia CAM = -0.341"
+    },
+    {
+      "check": "nih_png: runtime measured",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: GPU memory measured",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: ground truth handled from dataset file",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: original_real_cxr.png is pixel-identical to source",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "nih_png: overlay generated",
+      "pass": true,
+      "detail": "(512, 512, 3)"
+    },
+    {
+      "check": "nih_png: artifact original_real_cxr.png",
+      "pass": true,
+      "detail": "113.5 KB"
+    },
+    {
+      "check": "nih_png: artifact real_cxr_preprocessed.png",
+      "pass": true,
+      "detail": "26.5 KB"
+    },
+    {
+      "check": "nih_png: artifact real_cxr_gradcam_heatmap.png",
+      "pass": true,
+      "detail": "12.8 KB"
+    },
+    {
+      "check": "nih_png: artifact real_cxr_gradcam_overlay.png",
+      "pass": true,
+      "detail": "220.3 KB"
+    },
+    {
+      "check": "nih_png: artifact real_cxr_validation_composite.png",
+      "pass": true,
+      "detail": "497.9 KB"
+    },
+    {
+      "check": "nih_png: artifact real_cxr_scores.json",
+      "pass": true,
+      "detail": "1.3 KB"
+    },
+    {
+      "check": "nih_png: source SHA-256 unchanged (after)",
+      "pass": true,
+      "detail": "c8cbe59e6b9b186060dc68e63965658fa6b5b3ada6648d25c189b8b69b43cd4c"
+    },
+    {
+      "check": "siim_dicom: source SHA-256 matches provenance (before)",
+      "pass": true,
+      "detail": "13d378bfe1af0724e8cbe51adde36882cfdc6a69361c8a48ac30f688c3af7613"
+    },
+    {
+      "check": "siim_dicom: original stored read-only",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: decoded 2D grayscale",
+      "pass": true,
+      "detail": "shape=(1024, 1024)"
+    },
+    {
+      "check": "siim_dicom: pixel range within [0, maxval]",
+      "pass": true,
+      "detail": "[0, 254] maxval=255"
+    },
+    {
+      "check": "siim_dicom: 224x224 tensor",
+      "pass": true,
+      "detail": "[1, 1, 224, 224]"
+    },
+    {
+      "check": "siim_dicom: tensor has no NaN/Inf",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: tensor within xrv range [-1024, 1024]",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: 18 outputs",
+      "pass": true,
+      "detail": "18"
+    },
+    {
+      "check": "siim_dicom: scores finite",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: scores in [0, 1]",
+      "pass": true,
+      "detail": "[0.0032, 0.5589]"
+    },
+    {
+      "check": "siim_dicom: target is a real model output",
+      "pass": true,
+      "detail": "Mass [12]"
+    },
+    {
+      "check": "siim_dicom: heatmap 224x224",
+      "pass": true,
+      "detail": "(224, 224)"
+    },
+    {
+      "check": "siim_dicom: heatmap finite",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: non-zero gradient",
+      "pass": true,
+      "detail": "0.00655902"
+    },
+    {
+      "check": "siim_dicom: non-trivial activation",
+      "pass": true,
+      "detail": "raw max=0.00621305, 46.6% of pixels > 0.2"
+    },
+    {
+      "check": "siim_dicom: grad pass score equals inference score",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: heatmap is class-specific (differs from lowest-scoring target)",
+      "pass": true,
+      "detail": "corr vs Lung Lesion CAM = 0.056"
+    },
+    {
+      "check": "siim_dicom: runtime measured",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: GPU memory measured",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: ground truth handled from dataset file",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "siim_dicom: overlay generated",
+      "pass": true,
+      "detail": "(1024, 1024, 3)"
+    },
+    {
+      "check": "siim_dicom: artifact siim_dicom_original_real_cxr.png",
+      "pass": true,
+      "detail": "353.8 KB"
+    },
+    {
+      "check": "siim_dicom: artifact siim_dicom_real_cxr_preprocessed.png",
+      "pass": true,
+      "detail": "27.1 KB"
+    },
+    {
+      "check": "siim_dicom: artifact siim_dicom_real_cxr_gradcam_heatmap.png",
+      "pass": true,
+      "detail": "13.0 KB"
+    },
+    {
+      "check": "siim_dicom: artifact siim_dicom_real_cxr_gradcam_overlay.png",
+      "pass": true,
+      "detail": "732.0 KB"
+    },
+    {
+      "check": "siim_dicom: artifact siim_dicom_real_cxr_validation_composite.png",
+      "pass": true,
+      "detail": "476.5 KB"
+    },
+    {
+      "check": "siim_dicom: artifact siim_dicom_real_cxr_scores.json",
+      "pass": true,
+      "detail": "1.3 KB"
+    },
+    {
+      "check": "siim_dicom: source SHA-256 unchanged (after)",
+      "pass": true,
+      "detail": "13d378bfe1af0724e8cbe51adde36882cfdc6a69361c8a48ac30f688c3af7613"
+    },
+    {
+      "check": "primary real CXR (NIH PNG) validated",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "scope": "Software/model execution validation only. No clinical performance, diagnostic accuracy, safety, or regulatory claim is made."
+}

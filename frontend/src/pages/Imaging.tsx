@@ -8,6 +8,7 @@ import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SafetyNotice } from '@/components/SafetyNotice';
 import { EmptyState } from '@/components/States';
+import { ChestXrayScreening } from '@/components/vision/ChestXrayScreening';
 import { api, ApiError, type DicomUploadResponse } from '@/lib/api';
 import { useToast } from '@/context/ToastContext';
 import type { ImagingStudy } from '@/lib/types';
@@ -39,8 +40,11 @@ const toolbarTools = [
   { key: 'annotate', label: 'Annotation', icon: PenTool },
 ];
 
+type ImagingMode = 'screening' | 'viewer';
+
 export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStudy, onStudyUploaded }: ImagingProps) {
   const { addToast } = useToast();
+  const [mode, setMode] = useState<ImagingMode>('screening');
   const [activeTool, setActiveTool] = useState('2d');
   const [viewerOpen, setViewerOpen] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -98,12 +102,38 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
   };
 
   return (
-    <div className="space-y-3 lg:h-[calc(100vh-5rem)] lg:flex lg:flex-col">
+    <div className={`space-y-3 ${mode === 'viewer' ? 'lg:h-[calc(100vh-5rem)] lg:flex lg:flex-col' : ''}`}>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-teal-600 dark:text-teal-400">Primary workspace</p>
-          <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">OHIF Diagnostic Imaging</h2>
+        <div className="flex flex-wrap items-center gap-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-teal-600 dark:text-teal-400">Primary workspace</p>
+            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+              {mode === 'screening' ? 'Chest X-Ray AI Screening' : 'OHIF Diagnostic Imaging'}
+            </h2>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800" role="tablist" aria-label="Imaging mode">
+            {([
+              { key: 'screening', label: 'AI Screening', icon: Sparkles },
+              { key: 'viewer', label: 'OHIF Viewer', icon: ScanLine },
+            ] as const).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={mode === key}
+                onClick={() => setMode(key)}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  mode === key
+                    ? 'bg-white text-teal-700 shadow-sm dark:bg-neutral-950 dark:text-teal-300'
+                    : 'text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
+        {mode === 'viewer' && (
         <div className="flex items-center gap-2">
           <StatusBadge variant={selectedStudy?.deidentified ? 'success' : 'warning'}>
             {selectedStudy?.deidentified ? 'De-identified study' : 'Check de-identification'}
@@ -115,8 +145,12 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
             <ExternalLink className="h-3.5 w-3.5" /> Open OHIF
           </Button>
         </div>
+        )}
       </div>
 
+    {mode === 'screening' && <ChestXrayScreening />}
+
+    {mode === 'viewer' && (
     <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-12 lg:min-h-0">
       {/* Left: Study List */}
       <div className="lg:col-span-3 lg:overflow-y-auto">
@@ -311,6 +345,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
         </Card>
       </div>
       </div>
+    )}
     </div>
   );
 }

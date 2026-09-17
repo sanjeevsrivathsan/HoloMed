@@ -9,5 +9,8 @@ def init_db() -> None:
     """Create database tables if they don't exist."""
     SQLModel.metadata.create_all(engine)
 
-def get_session() -> Session:
-    return Session(engine)
+from typing import Generator
+
+def get_session() -> Generator[Session, None, None]:
+    with Session(engine) as session:
+        yield session

@@ -1,29 +1,52 @@
 import { useState } from 'react';
-import { Activity, Mail, Lock, ShieldCheck, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Activity, Mail, Lock, ShieldCheck, AlertCircle, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
 import { Button } from './Button';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api';
 
+type AuthMode = 'signin' | 'signup';
+
 export function AuthScreen() {
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const [mode, setMode] = useState<AuthMode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
+    
+    if (mode === 'signup' && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
     setLoading(true);
     try {
-      await signIn(email, password);
+      if (mode === 'signin') {
+        await signIn(email, password);
+      } else {
+        await signUp(email, password);
+        setSuccess('Registration successful! Please sign in with your new account.');
+        setMode('signin');
+        setPassword('');
+        setConfirmPassword('');
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401) {
           setError('Invalid email or password.');
         } else {
-          setError(`Server error (${err.status}): ${err.detail}`);
+          // Backend may return {"detail": "Email already registered"}
+          const msg = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+          setError(msg || `Server error (${err.status})`);
         }
       } else {
         setError('Could not reach the server. Is the backend running?');
@@ -31,6 +54,14 @@ export function AuthScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleMode = () => {
+    setMode(mode === 'signin' ? 'signup' : 'signin');
+    setError(null);
+    setSuccess(null);
+    setPassword('');
+    setConfirmPassword('');
   };
 
   return (
@@ -45,13 +76,24 @@ export function AuthScreen() {
         </div>
 
         <div className="card p-6">
-          <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Welcome back</h2>
-          <p className="mb-5 text-sm text-neutral-500 dark:text-neutral-400">Sign in to access your clinical workspace</p>
+          <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+            {mode === 'signin' ? 'Welcome back' : 'Create an account'}
+          </h2>
+          <p className="mb-5 text-sm text-neutral-500 dark:text-neutral-400">
+            {mode === 'signin' ? 'Sign in to access your clinical workspace' : 'Sign up to start using HoloMed'}
+          </p>
 
           {error && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950/30">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
               <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+            </div>
+          )}
+
+          {success && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-teal-200 bg-teal-50 p-3 dark:border-teal-800 dark:bg-teal-950/30">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal-600 dark:text-teal-400" />
+              <p className="text-sm text-teal-800 dark:text-teal-300">{success}</p>
             </div>
           )}
 
@@ -82,7 +124,7 @@ export function AuthScreen() {
                   placeholder="••••••••"
                   className="input pl-9 pr-10"
                   required
-                  autoComplete="current-password"
+                  autoComplete={mode === 'signin' ? "current-password" : "new-password"}
                 />
                 <button
                   type="button"
@@ -98,10 +140,51 @@ export function AuthScreen() {
                 </button>
               </div>
             </div>
+            
+            {mode === 'signup' && (
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Confirm Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="input pl-9 pr-10"
+                    required
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-teal-500 rounded-sm dark:hover:text-neutral-300"
+                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign in'}
+              {loading ? (mode === 'signin' ? 'Signing in...' : 'Signing up...') : (mode === 'signin' ? 'Sign in' : 'Sign up')}
             </Button>
           </form>
+
+          <div className="mt-4 text-center">
+            <button
+              type="button"
+              onClick={toggleMode}
+              className="text-sm text-teal-600 hover:text-teal-700 hover:underline dark:text-teal-400 dark:hover:text-teal-300"
+            >
+              {mode === 'signin' ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+            </button>
+          </div>
 
           <div className="my-4 flex items-center gap-3">
             <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-800" />

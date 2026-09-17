@@ -27,3 +27,16 @@ backend/data/
 !.env.example
 
 scratch/
+
+# Vision model checkpoint (27 MB third-party weights) — obtain and verify per
+# backend/models/weights/README.md; never commit binaries here.
+backend/models/weights/*.pt
+
+# SIIM-ACR (Kaggle competition data) and renders derived from it — pending
+# licensing review; see backend/tests/artifacts/real_cxr/provenance.json.
+backend/tests/artifacts/real_cxr/source/*.dcm
+backend/tests/artifacts/real_cxr/siim_dicom_*.png
+backend/tests/artifacts/phase4_e2e/07_siim_dicom.png
+
+# Failed download placeholder from Phase 1 (a 14-byte "404" text file, not an image)
+backend/tests/artifacts/public_cxr_sample.png
