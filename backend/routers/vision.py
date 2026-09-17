@@ -153,7 +153,7 @@ async def status():
         "provider_configured": bool(info.get("configured")),
         "model_ready": bool(info.get("model_ready")),
         "status": ("ready" if info.get("model_ready")
-                   else "unavailable" if not info.get("configured")
+                   else "unavailable" if not info.get("configured") or info.get("reachable") is False
                    else "loading" if key == "cloud" or config.VISION_PRELOAD
                    else "standby"),  # local model loads on first request
     }

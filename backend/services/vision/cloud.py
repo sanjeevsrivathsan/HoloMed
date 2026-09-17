@@ -143,10 +143,13 @@ class CloudVisionProvider:
             url = _endpoint("/v1/health")
         except VisionProviderUnavailable:
             return {"configured": False, "model_ready": False}
+        reachable, body = False, {}
         try:
             with httpx.Client(timeout=10.0, follow_redirects=False) as client:
                 resp = client.get(url, headers=_headers())
-            body = resp.json() if resp.status_code == 200 else {}
+            if resp.status_code == 200:
+                body, reachable = resp.json(), True
         except (httpx.HTTPError, ValueError):
-            body = {}
-        return {"configured": True, "model_ready": body.get("model_ready") is True}
+            reachable, body = False, {}
+        ready = isinstance(body, dict) and body.get("model_ready") is True
+        return {"configured": True, "model_ready": ready, "reachable": reachable}

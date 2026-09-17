@@ -231,9 +231,16 @@ def test_cloud_token_never_logged(cloud_env, monkeypatch, caplog):
 
 def test_cloud_status_reports_remote_readiness(cloud_env, monkeypatch):
     route_cloud(monkeypatch, lambda r: httpx.Response(200, json={"status": "ready", "model_ready": True}))
-    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": True}
+    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": True, "reachable": True}
+    route_cloud(monkeypatch, lambda r: httpx.Response(200, json={"status": "loading", "model_ready": False}))
+    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": False, "reachable": True}
     route_cloud(monkeypatch, lambda r: httpx.Response(401, json={}))
-    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": False}
+    assert provider.get_vision_provider().status() == {"configured": True, "model_ready": False, "reachable": False}
+
+    def down(request):
+        raise httpx.ConnectError("refused")
+    route_cloud(monkeypatch, down)
+    assert provider.get_vision_provider().status()["reachable"] is False
 
 
 # ── backend API with the cloud provider ───────────────────────────────────
@@ -282,7 +289,7 @@ def test_api_cloud_outage_is_controlled_503(api, cloud_env, monkeypatch):
     assert resp.status_code == 503
     assert resp.json() == {"detail": "Vision service is not available"}
     status = api.get("/api/v1/vision/status").json()
-    assert status["status"] == "loading" and status["model_ready"] is False
+    assert status["status"] == "unavailable" and status["model_ready"] is False
 
 
 def test_api_status_unconfigured_cloud(api, monkeypatch):
