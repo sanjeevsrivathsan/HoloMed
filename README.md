@@ -58,9 +58,22 @@ cd frontend && npm install && npm run dev
 
 See `docs/DEPLOYMENT.md` for details.
 
+## License
+
+HoloMed's own source code is released under the [MIT License](LICENSE).
+
+- **Third-party parts keep their own licences.** These include the prebuilt OHIF viewer, the
+  bundled libraries, Python/npm dependencies, the TorchXRayVision model weights and the NIH sample
+  data (see below).
+- **Model weights are not in this repository.** They are obtained separately under the upstream
+  project's terms.
+- **No medical fitness is implied.** The MIT licence provides the software "as is". HoloMed is not
+  a medical device and is not clinically validated.
+
 ## Third-party components and data
 
-- **TorchXRayVision** model and weights: https://github.com/mlmed/torchxrayvision
+- **TorchXRayVision** (package classified as Apache-licensed in its PyPI metadata) and its
+  `densenet121-res224-all` weights: https://github.com/mlmed/torchxrayvision
 - **OHIF Viewer:** MIT licence, see `frontend/ohif/LICENSE`. Bundled library licences are in
   `frontend/ohif/*.LICENSE.txt`.
 - **NIH ChestX-ray14** sample images (NIH Clinical Center): attribution in
