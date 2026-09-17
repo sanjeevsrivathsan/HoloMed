@@ -60,16 +60,3 @@ export function sameRoute(a: AppRoute, b: AppRoute): boolean {
   return formatRoute(a) === formatRoute(b);
 }
 
-/**
- * Query parameters that belong to the Google sign-in hand-off, never part of an app route.
- * The popup result page is recognised by `auth_popup=1`.
- */
-export function isAuthPopupResult(search: string): boolean {
-  return new URLSearchParams(search).get('auth_popup') === '1';
-}
-
-export function authResultFrom(search: string): { error: string | null; notice: string | null } {
-  const params = new URLSearchParams(search);
-  const clean = (v: string | null) => (v && /^[a-z_]{1,40}$/.test(v) ? v : null);
-  return { error: clean(params.get('auth_error')), notice: clean(params.get('auth_notice')) };
-}

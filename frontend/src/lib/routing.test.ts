@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { authResultFrom, DEFAULT_ROUTE, formatRoute, isAuthPopupResult, parseRoute, sameRoute } from './routing.ts';
+import { DEFAULT_ROUTE, formatRoute, parseRoute, sameRoute } from './routing.ts';
 
 test('paths map to workspace routes and back', () => {
   const cases: [string, ReturnType<typeof parseRoute>][] = [
@@ -28,11 +28,4 @@ test('unknown or malformed paths fall back safely', () => {
   assert.deepEqual(parseRoute('/reports/1/extra'), { page: 'reports', reportId: '1' });
   assert.deepEqual(parseRoute('/REPORTS/3'), { page: 'reports', reportId: '3' });
   assert.ok(sameRoute(parseRoute('/'), parseRoute('/imaging')));
-});
-
-test('Google sign-in popup results are recognised and sanitised', () => {
-  assert.equal(isAuthPopupResult('?auth_popup=1&auth_notice=google_linked'), true);
-  assert.equal(isAuthPopupResult('?auth_error=google_cancelled'), false);
-  assert.deepEqual(authResultFrom('?auth_popup=1&auth_error=google_cancelled'), { error: 'google_cancelled', notice: null });
-  assert.deepEqual(authResultFrom('?auth_popup=1&auth_notice=<script>'), { error: null, notice: null });
 });

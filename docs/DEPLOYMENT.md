@@ -245,15 +245,15 @@ The prebuilt viewer in `frontend/ohif` is served by FastAPI at `/ohif` and proxi
   handled entirely by the backend.
 
 ### How Google Sign-In works
-0. The frontend opens `/api/v1/auth/google?popup=1` in a **popup window** (the link flow uses
-   `/api/v1/auth/google/link?popup=1`). Running the redirects in a popup keeps Google's pages out
-   of the main window's session history, so the browser Back button stays inside HoloMed. The popup
-   ends on `?auth_popup=1`, signals the opener (BroadcastChannel / same-origin postMessage) and
-   closes; the main window then re-checks `GET /api/v1/auth/me` — **the signal itself carries no
-   authority**. If the browser blocks popups, the classic full-page redirect is used instead. The
-   popup mode is remembered in a short-lived HttpOnly cookie
-   (`holomed_google_popup`, scoped to `/api/v1/auth/google`), so the callback knows where to
-   send the result.
+0. The whole flow runs in the **current browser tab**: no popup, no new tab, no iframe.
+   "Continue with Google" navigates the tab to `/api/v1/auth/google` (the link flow uses
+   `/api/v1/auth/google/link`) with `location.replace`, so the sign-in screen does not stay behind
+   as its own history entry. After the callback the authenticated workspace appears in that same
+   tab, at full viewport size.
+   - Back from the workspace can still reach Google's own page — that is inherent to redirect-based
+     OAuth. Its `state` has already been consumed, so the callback answers with
+     `?auth_error=invalid_state`, which returns the browser to HoloMed with a short message; the
+     user stays signed in. Browser history is never disabled or trapped.
 1. `GET /api/v1/auth/google` redirects to Google.
    - It requests only the `openid email profile` scopes, with `access_type=online`.
    - The request carries a random `state`, a nonce and a PKCE S256 challenge.
