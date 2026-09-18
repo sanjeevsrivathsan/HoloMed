@@ -112,6 +112,30 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
+OHIF_DIR = "frontend/ohif"
+_APP_CONFIG_TAG = 'src="/ohif/app-config.js"'
+
+
+def ohif_index_response():
+    """OHIF's index.html, pointing at app-config.js?v=<content hash>.
+
+    app-config.js (the data sources) keeps its name across changes, so a browser could keep using
+    a cached old copy: OHIF then starts without the `holomed` data source and renders an empty
+    black page without requesting any data. Versioning the URL by content means a changed config
+    is always fetched; the HTML itself is never stored so it always names the current version.
+    """
+    import hashlib
+    from fastapi.responses import HTMLResponse
+    with open(os.path.join(OHIF_DIR, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    with open(os.path.join(OHIF_DIR, "app-config.js"), "rb") as f:
+        version = hashlib.sha256(f.read()).hexdigest()[:16]
+    if _APP_CONFIG_TAG not in html:
+        logger.warning("OHIF index.html has no %s tag; app-config.js is not versioned", _APP_CONFIG_TAG)
+    html = html.replace(_APP_CONFIG_TAG, f'src="/ohif/app-config.js?v={version}"')
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
 class SPAStaticFiles(StaticFiles):
     """Static files with a single-page-app fallback: client-side routes such as
     /ohif/viewer?StudyInstanceUIDs=… (deep links, browser refresh) get index.html.
@@ -121,12 +145,14 @@ class SPAStaticFiles(StaticFiles):
     cached copy of the viewer or of app-config.js (its data sources) can never outlive a change."""
 
     async def get_response(self, path, scope):
+        if path in ("", ".", "index.html"):
+            return ohif_index_response()
         try:
             response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             if exc.status_code != 404 or "." in os.path.basename(path):
                 raise
-            response = await super().get_response("index.html", scope)
+            return ohif_index_response()
         response.headers["Cache-Control"] = "no-cache"
         return response
 

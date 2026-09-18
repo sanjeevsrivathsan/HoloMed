@@ -12,7 +12,8 @@
     "test": "node --test src/lib/processingStages.test.ts src/lib/ranges.test.ts src/lib/reportDates.test.ts src/lib/routing.test.ts src/lib/googleAuth.test.ts src/lib/panelSizes.test.ts src/lib/imagingStudies.test.ts src/lib/patients.test.ts",
     "test:e2e:ohif": "node e2e/ohif-cr-render.e2e.mjs",
     "test:e2e:patients": "node e2e/patient-workspace.e2e.mjs",
-    "test:e2e:layout": "node e2e/ui-layout.e2e.mjs"
+    "test:e2e:layout": "node e2e/ui-layout.e2e.mjs",
+    "test:e2e:ohif-stages": "node e2e/ohif-stages.e2e.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
