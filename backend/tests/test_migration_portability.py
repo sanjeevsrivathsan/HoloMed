@@ -232,3 +232,85 @@ def pg_reference_engine():
 
 def test_complete_history_on_fresh_postgresql(pg_schema_engine, pg_reference_engine, monkeypatch):
     _assert_complete_history(pg_schema_engine, pg_reference_engine, monkeypatch)
+
+
+# ── a4c7e9f1b3d5: user.hashed_password nullable (Google-only accounts) ───────
+PASSWORD_NULLABLE = "a4c7e9f1b3d5"
+
+
+def _user_constraints(engine):
+    insp = inspect(engine)
+    columns = {c["name"]: (c["type"].compile(dialect=engine.dialect), c["nullable"], c["default"])
+               for c in insp.get_columns("user")}
+    indexes = sorted((i["name"], tuple(i["column_names"]), bool(i["unique"])) for i in insp.get_indexes("user"))
+    uniques = sorted(tuple(u["column_names"]) for u in insp.get_unique_constraints("user"))
+    return columns, indexes, uniques
+
+
+def _version(engine):
+    with engine.connect() as conn:
+        return conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+
+
+def _assert_password_nullable_migration(engine, monkeypatch):
+    from alembic import command
+    monkeypatch.setattr(database, "engine", engine)
+    command.upgrade(_config(), "9d5e3f7a2b81")
+    with engine.begin() as conn:
+        conn.execute(text('INSERT INTO "user" (id, email, hashed_password, is_active, created_at) '
+                          "VALUES (1, 'password@example.com', 'hash-1', :active, '2026-01-01 00:00:00')"),
+                     {"active": True})
+    before_columns, before_indexes, before_uniques = _user_constraints(engine)
+    assert before_columns["hashed_password"][1] is False
+
+    command.upgrade(_config(), "head")
+    assert _head() == PASSWORD_NULLABLE and _version(engine) == PASSWORD_NULLABLE
+    columns, indexes, uniques = _user_constraints(engine)
+    assert columns["hashed_password"] == (before_columns["hashed_password"][0], True, None)   # type/default kept
+    assert {k: v for k, v in columns.items() if k != "hashed_password"} == \
+        {k: v for k, v in before_columns.items() if k != "hashed_password"}
+    assert (indexes, uniques) == (before_indexes, before_uniques)
+    with engine.begin() as conn:
+        assert conn.execute(text('SELECT hashed_password FROM "user" WHERE id = 1')).scalar() == "hash-1"
+        conn.execute(text('INSERT INTO "user" (id, email, hashed_password, is_active, created_at, google_id) '
+                          "VALUES (2, 'google@example.com', NULL, :active, '2026-01-01 00:00:00', 'google-sub-2')"),
+                     {"active": True})
+
+    # Downgrade refuses while a password-less account exists, and changes nothing.
+    with pytest.raises(RuntimeError, match="1 user\\(s\\) have no password"):
+        command.downgrade(_config(), "9d5e3f7a2b81")
+    assert _version(engine) == PASSWORD_NULLABLE and _user_constraints(engine)[0]["hashed_password"][1] is True
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT count(*) FROM "user"')).scalar() == 2
+
+    # Without such accounts it restores NOT NULL and keeps the password users.
+    with engine.begin() as conn:
+        conn.execute(text('DELETE FROM "user" WHERE id = 2'))
+    command.downgrade(_config(), "9d5e3f7a2b81")
+    assert _version(engine) == "9d5e3f7a2b81"
+    columns, indexes, uniques = _user_constraints(engine)
+    assert columns == before_columns and (indexes, uniques) == (before_indexes, before_uniques)
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT hashed_password FROM "user" WHERE id = 1')).scalar() == "hash-1"
+
+
+def test_password_nullable_migration_on_sqlite(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'users.db'}")
+    _assert_password_nullable_migration(engine, monkeypatch)
+    engine.dispose()
+
+
+def test_password_nullable_migration_on_postgresql(pg_schema_engine, monkeypatch):
+    _assert_password_nullable_migration(pg_schema_engine, monkeypatch)
+
+
+def test_migrated_user_table_matches_the_model(tmp_path, monkeypatch):
+    """After the complete history, user.hashed_password is nullable as the model (and Google sign-in) expect."""
+    from alembic import command
+    from backend.models import User
+    engine = create_engine(f"sqlite:///{tmp_path / 'head.db'}")
+    monkeypatch.setattr(database, "engine", engine)
+    command.upgrade(_config(), "head")
+    columns = {c["name"]: c["nullable"] for c in inspect(engine).get_columns("user")}
+    assert columns == {c.name: c.nullable for c in User.__table__.columns}
+    engine.dispose()
