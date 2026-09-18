@@ -38,6 +38,20 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-neutral-400 dark:bg-neutral-600;
   }
+  html {
+    scrollbar-color: theme('colors.neutral.300') transparent;
+  }
+  html.dark {
+    scrollbar-color: theme('colors.neutral.700') transparent;
+  }
+  /* While a panel divider is being dragged, embedded viewers (OHIF iframe) must not swallow the pointer. */
+  [data-resizing] {
+    cursor: col-resize;
+    user-select: none;
+  }
+  [data-resizing] iframe {
+    pointer-events: none;
+  }
 }
 
 @layer components {

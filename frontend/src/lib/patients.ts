@@ -4,8 +4,9 @@ export interface PatientSummary {
   id: string;             // immutable patient uid
   patient_code: string;   // human-facing Patient ID, unique per account
   name: string;
-  date_of_birth: string | null;
+  age: number | null;
   sex: string | null;
+  phone: string | null;
   created_at: string | null;
   updated_at: string | null;
   study_count: number;
@@ -16,8 +17,10 @@ export interface PatientSummary {
 export interface NewPatientInput {
   name: string;
   patient_code: string;
-  date_of_birth?: string;
+  /** Whole years as typed (validated to an integer 0–130). */
+  age?: string;
   sex?: string;
+  phone?: string;
 }
 
 // Mirrors backend/dependencies/patient.py.
@@ -32,6 +35,40 @@ export function normalizePatientName(name: string): string {
   return name.split(/\s+/).filter(Boolean).join(' ');
 }
 
+export const MAX_AGE = 130;
+
+/** Age as an integer, or null when empty. Throws nothing: invalid input returns NaN. */
+export function parseAge(age: string | undefined): number | null {
+  const text = (age ?? '').trim();
+  if (!text) return null;
+  return /^\d{1,3}$/.test(text) ? Number(text) : Number.NaN;
+}
+
+// Mirrors backend validate_phone: optional leading +, digits with spaces ( ) . -, 6–15 digits, ≤ 24 chars.
+const PHONE_PATTERN = /^\+?[0-9][0-9 ().-]*$/;
+
+export function normalizePhone(phone: string | undefined): string {
+  return (phone ?? '').split(/\s+/).filter(Boolean).join(' ');
+}
+
+export function isValidPhone(phone: string): boolean {
+  const digits = phone.replace(/\D/g, '').length;
+  return phone.length <= 24 && PHONE_PATTERN.test(phone) && digits >= 6 && digits <= 15;
+}
+
+export const SEX_LABELS: Record<string, string> = {
+  female: 'Female', male: 'Male', other: 'Other', unknown: 'Unknown',
+};
+
+/** Compact detail lines for the patient panel (never shown in the top bar). */
+export function patientDetails(p: Pick<PatientSummary, 'age' | 'sex' | 'phone'>): { label: string; value: string }[] {
+  return [
+    { label: 'Age', value: p.age === null || p.age === undefined ? 'Not specified' : `${p.age} years` },
+    { label: 'Sex', value: p.sex ? SEX_LABELS[p.sex] ?? p.sex : 'Not specified' },
+    { label: 'Phone', value: p.phone || 'Not specified' },
+  ];
+}
+
 /** Field errors for the New Patient form; empty when the input is valid. */
 export function validateNewPatient(input: NewPatientInput, existingCodes: string[]): Partial<Record<keyof NewPatientInput, string>> {
   const errors: Partial<Record<keyof NewPatientInput, string>> = {};
@@ -42,7 +79,10 @@ export function validateNewPatient(input: NewPatientInput, existingCodes: string
   if (!code) errors.patient_code = 'Patient ID is required.';
   else if (!CODE_PATTERN.test(code)) errors.patient_code = "Use 2–32 letters, digits, '.', '_' or '-'.";
   else if (existingCodes.map(normalizePatientCode).includes(code)) errors.patient_code = `Patient ID ${code} already exists.`;
-  if (input.date_of_birth && !/^\d{4}-\d{2}-\d{2}$/.test(input.date_of_birth)) errors.date_of_birth = 'Use YYYY-MM-DD.';
+  const age = parseAge(input.age);
+  if (age !== null && (Number.isNaN(age) || age > MAX_AGE)) errors.age = `Enter whole years from 0 to ${MAX_AGE}.`;
+  const phone = normalizePhone(input.phone);
+  if (phone && !isValidPhone(phone)) errors.phone = 'Enter a valid phone number, e.g. +91 98765 43210.';
   return errors;
 }
 

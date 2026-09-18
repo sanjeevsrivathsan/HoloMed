@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   ScanLine, FileText, Sparkles, ExternalLink, Upload, Loader2, User,
 } from 'lucide-react';
@@ -20,6 +20,12 @@ import { ohifViewerUrl, patientLabel, type PatientSummary } from '@/lib/patients
  */
 const OHIF_BASE = ((import.meta.env.VITE_OHIF_URL as string | undefined) ?? '/ohif/').replace(/\/?$/, '/');
 
+// Width the OHIF viewer keeps when all three columns are shown; below that the clinical panel
+// starts collapsed (it can still be opened) so the viewer never shrinks to an unusable strip.
+const VIEWER_MIN = 560;
+const THREE_COLUMNS_MIN = 240 + VIEWER_MIN + 280 + 2 * 10;
+const SPLIT_MIN_VIEWPORT = 1280;
+
 export type ImagingMode = 'screening' | 'viewer';
 
 interface ImagingProps {
@@ -39,6 +45,20 @@ export function Imaging({
 }: ImagingProps) {
   const { addToast } = useToast();
   const [viewerOpen, setViewerOpen] = useState(true);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  const [clinicalChoice, setClinicalChoice] = useState<boolean | null>(null);
+  const showClinical = clinicalChoice ?? !compact;
+
+  useEffect(() => {
+    const el = workspaceRef.current;
+    if (!el) return;
+    const measure = () => setCompact(window.innerWidth >= SPLIT_MIN_VIEWPORT && el.clientWidth < THREE_COLUMNS_MIN);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [mode]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -89,8 +109,9 @@ export function Imaging({
   };
 
   return (
-    <div className={`space-y-3 ${mode === 'viewer' ? 'lg:h-[calc(100vh-5rem)] lg:flex lg:flex-col' : ''}`}>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
+    // Viewer mode fits the viewport exactly (top bar 4rem + page padding 3rem); panels scroll inside.
+    <div className={mode === 'viewer' ? 'flex flex-col gap-3 xl:h-[calc(100dvh-7rem)]' : 'space-y-3'} data-testid="imaging-workspace">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex flex-wrap items-center gap-4">
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.16em] text-teal-600 dark:text-teal-400">Primary workspace</p>
@@ -130,6 +151,9 @@ export function Imaging({
           <Button variant="secondary" size="sm" onClick={() => setViewerOpen((open) => !open)}>
             {viewerOpen ? 'Hide viewer' : 'Show viewer'}
           </Button>
+          <Button variant="secondary" size="sm" aria-pressed={showClinical} onClick={() => setClinicalChoice(!showClinical)}>
+            {showClinical ? 'Hide clinical panel' : 'Show clinical panel'}
+          </Button>
           <Button size="sm" disabled={!ohifStudyUrl} onClick={() => ohifStudyUrl && window.open(ohifStudyUrl, '_blank', 'noopener,noreferrer')}>
             <ExternalLink className="h-3.5 w-3.5" /> Open OHIF
           </Button>
@@ -148,14 +172,16 @@ export function Imaging({
     )}
 
     {mode === 'viewer' && (
-    <ResizablePanels id="imaging-viewer" className="flex-1 lg:min-h-0" breakpoint={1024} panels={[
-      { label: 'study list', min: 220, size: 20, max: 40 },
-      { label: 'viewer', min: 480, size: 58 },
-      { label: 'clinical panel', min: 220, size: 22, max: 40 },
+    <div className="min-h-0 flex-1" ref={workspaceRef}>
+    <ResizablePanels id="imaging-viewer" breakpoint={SPLIT_MIN_VIEWPORT} fill panels={[
+      { label: 'study list', min: 240, size: 0, px: 320, maxPx: 500 },
+      // Opening the clinical panel on a narrow screen is an explicit choice: the viewer may then go down to 400px.
+      { label: 'viewer', min: compact && showClinical ? 400 : VIEWER_MIN, size: 0 },
+      ...(showClinical ? [{ label: 'clinical panel', min: 280, size: 0, px: 360, maxPx: 520 }] : []),
     ]}>
-      {/* Left: Study List */}
-      <div className="h-full lg:overflow-y-auto">
-        <Card className="lg:h-full flex flex-col">
+      {/* Left: study list (scrolls on its own) + metadata of the selected study */}
+      <div className="h-full">
+        <Card className="flex h-full flex-col overflow-hidden">
           <CardHeader
             title="Imaging Studies"
             subtitle={patient ? patient.patient_code : undefined}
@@ -181,7 +207,7 @@ export function Imaging({
               </div>
             }
           />
-          <div className="flex-1 divide-y divide-neutral-100 dark:divide-neutral-800 lg:overflow-y-auto" data-testid="study-list">
+          <div className="max-h-[50vh] min-h-0 flex-1 divide-y divide-neutral-100 overflow-y-auto overscroll-contain dark:divide-neutral-800 xl:max-h-none" data-testid="study-list">
             {studiesLoading && studies.length === 0 ? (
               <div className="flex items-center justify-center p-8">
                 <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
@@ -221,8 +247,8 @@ export function Imaging({
               ))
             )}
           </div>
-          <div className="border-t border-neutral-200 p-3 dark:border-neutral-800">
-            <div className="space-y-1.5 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/50" data-testid="study-metadata">
+          <div className="max-h-[40%] shrink-0 overflow-y-auto overscroll-contain border-t border-neutral-200 p-3 dark:border-neutral-800" data-testid="study-metadata">
+            <div className="space-y-1.5 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/50">
               <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Study Metadata</p>
               {selectedStudy ? (
                 <div className="space-y-1 text-xs text-neutral-600 dark:text-neutral-400">
@@ -243,15 +269,15 @@ export function Imaging({
       </div>
 
       {/* Center: the real OHIF viewer (its own toolbar provides zoom, pan, W/L, measurements, MPR/3D) */}
-      <div className="h-full min-h-[640px]">
-        <Card className="lg:h-full flex flex-col overflow-hidden">
+      <div className="h-full">
+        <Card className="flex h-full flex-col overflow-hidden">
           {!selectedStudy ? (
             <div className="flex flex-1 items-center justify-center p-8">
               <EmptyState title="Select a study" description="Choose an imaging study from the list to open the viewer." icon={<ScanLine className="h-6 w-6" />} />
             </div>
           ) : (
             <>
-              <div className="relative flex flex-1 bg-neutral-950" style={{ minHeight: 600 }}>
+              <div className="relative flex min-h-[70vh] flex-1 bg-neutral-950 xl:min-h-0" data-testid="viewer-area">
                 {!hasViewableImages(selectedStudy.modality) ? (
                   <div className="flex flex-1 flex-col items-center justify-center p-8 text-center" role="status">
                     <ScanLine className="h-10 w-10 text-neutral-600" />
@@ -266,7 +292,7 @@ export function Imaging({
                     key={ohifStudyUrl}
                     title="OHIF DICOM Viewer"
                     src={ohifStudyUrl}
-                    className="h-full min-h-[600px] w-full border-0"
+                    className="absolute inset-0 h-full w-full border-0"
                     allow="fullscreen"
                   />
                 ) : (
@@ -277,7 +303,7 @@ export function Imaging({
                   </div>
                 )}
               </div>
-              <div className="flex items-center justify-between gap-2 border-t border-neutral-200 p-3 dark:border-neutral-800">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-t border-neutral-200 p-3 dark:border-neutral-800">
                 <div className="flex min-w-0 items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
                   <span>{selectedStudy.modality}</span>
                   <span>·</span>
@@ -290,11 +316,12 @@ export function Imaging({
         </Card>
       </div>
 
-      {/* Right: AI result and report for the selected study */}
-      <div className="h-full lg:overflow-y-auto">
-        <Card className="lg:h-full flex flex-col">
+      {/* Right: AI result and report for the selected study (collapsible) */}
+      {showClinical && (
+      <div className="h-full">
+        <Card className="flex h-full flex-col overflow-hidden">
           <CardHeader title="Clinical Panel" icon={<FileText className="h-4.5 w-4.5" />} />
-          <div className="flex-1 space-y-3 overflow-y-auto p-4">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4" data-testid="clinical-panel-body">
             {!selectedStudy ? (
               <EmptyState title="No study selected" description="Select a study to see its AI screening result." icon={<FileText className="h-6 w-6" />} />
             ) : (
@@ -337,7 +364,9 @@ export function Imaging({
           </div>
         </Card>
       </div>
+      )}
     </ResizablePanels>
+    </div>
     )}
     </div>
   );

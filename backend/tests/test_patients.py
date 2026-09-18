@@ -107,6 +107,26 @@ def test_create_list_update_and_validate_patients(client):
     assert client.patch(f"/api/v1/patients/{b['id']}", json={"patient_code": "HML-TEST-001"}).status_code == 409
 
 
+def test_age_and_phone_are_validated_and_persisted(client):
+    login(client, "pt-fields@example.com")
+    alpha = client.post("/api/v1/patients", json={"name": "Test Patient Alpha", "patient_code": "HML-TEST-002",
+                                                  "age": 25, "phone": "  +91 98765   43210 "}).json()
+    assert (alpha["age"], alpha["phone"], alpha["sex"]) == (25, "+91 98765 43210", None)
+    us = client.post("/api/v1/patients", json={"name": "US", "patient_code": "HML-US", "age": 0,
+                                               "phone": "+1 (555) 010-4477"})
+    assert us.status_code == 201 and us.json()["age"] == 0
+    for bad_age in (-1, 131, 25.5, "25", "abc", True):
+        resp = client.post("/api/v1/patients", json={"name": "X", "patient_code": "HML-BAD", "age": bad_age})
+        assert resp.status_code == 422, bad_age
+    for bad_phone in ("abc", "12345", "+91 98765 43210 12345 67", "++91 98765", "98765+43210"):
+        resp = client.post("/api/v1/patients", json={"name": "X", "patient_code": "HML-BAD", "phone": bad_phone})
+        assert resp.status_code == 422, bad_phone
+    updated = client.patch(f"/api/v1/patients/{alpha['id']}", json={"age": 26, "phone": "+44 20 7946 0958"}).json()
+    assert (updated["age"], updated["phone"]) == (26, "+44 20 7946 0958")
+    listed = {p["patient_code"]: p for p in client.get("/api/v1/patients").json()}
+    assert listed["HML-TEST-002"]["age"] == 26 and "HML-BAD" not in listed
+
+
 def test_patients_are_isolated_between_users(client):
     login(client, "pt-alice@example.com")
     alice = create(client, "Alice's patient", "HML-A")

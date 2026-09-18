@@ -25,5 +25,7 @@ class Patient(SQLModel, table=True):
     display_name: str
     date_of_birth: Optional[str] = None
     sex: Optional[str] = None
+    age: Optional[int] = None
+    phone: Optional[str] = None
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)

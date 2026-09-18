@@ -140,7 +140,7 @@ try {
 
   // 2-3. Create and select Patient A
   await createPatient('Demo Chest X-Ray Patient', 'HML-TEST-001');
-  assert.match(await activePatient(), /HML-TEST-001 — Demo Chest X-Ray Patient/);
+  assert.match(await activePatient(), /HML-TEST-001\s+Demo Chest X-Ray Patient/);
   log('created and selected Patient A (HML-TEST-001)');
   const patients = await (await page.request.get(`${BASE}api/v1/patients`)).json();
   const patientA = patients.find((p) => p.patient_code === 'HML-TEST-001');
@@ -237,8 +237,7 @@ try {
   await nav('Imaging Workspace').click();
   await page.getByTestId('patient-selector').click();
   await shot(page, '04_patient_b_selector');
-  await page.keyboard.press('Escape');
-  await page.getByTestId('patient-selector').click();
+  await page.keyboard.press('Escape');   // closes the patient dropdown
   log('Patient B (HML-TEST-002): no CR, no AI result' + (reportOk ? ', no report' : ''));
 
   // 24-25. Back to Patient A

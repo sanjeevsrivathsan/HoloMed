@@ -9,7 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api, setActivePatientId } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import {
-  activePatientStorageKey, pickActivePatient, type NewPatientInput, type PatientSummary,
+  activePatientStorageKey, parseAge, pickActivePatient, type NewPatientInput, type PatientSummary,
 } from '@/lib/patients';
 
 interface PatientContextValue {
@@ -84,8 +84,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     const created = await api.post<PatientSummary>('/api/v1/patients', {
       name: input.name,
       patient_code: input.patient_code,
-      ...(input.date_of_birth ? { date_of_birth: input.date_of_birth } : {}),
+      ...(parseAge(input.age) !== null ? { age: parseAge(input.age) } : {}),
       ...(input.sex ? { sex: input.sex } : {}),
+      ...(input.phone ? { phone: input.phone } : {}),
     });
     setPatients((prev) => [...prev, created]);
     activate(created.id);

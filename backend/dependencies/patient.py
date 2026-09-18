@@ -42,6 +42,20 @@ def validate_name(name: str) -> str:
     return name
 
 
+PHONE_PATTERN = re.compile(r"^\+?[0-9][0-9 ().-]*$")
+
+
+def validate_phone(phone: Optional[str]) -> Optional[str]:
+    """International-friendly phone check: optional leading +, digits with spaces/()/./-, 6–15 digits."""
+    phone = " ".join((phone or "").split())
+    if not phone:
+        return None
+    digits = sum(c.isdigit() for c in phone)
+    if len(phone) > 24 or not PHONE_PATTERN.fullmatch(phone) or not 6 <= digits <= 15:
+        raise HTTPException(status_code=422, detail="Enter a valid phone number, e.g. +91 98765 43210.")
+    return phone
+
+
 def code_taken(session: Session, owner_id: int, code: str, exclude_id: Optional[int] = None) -> bool:
     stmt = select(Patient.id).where(Patient.owner_id == owner_id, Patient.patient_code == code)
     if exclude_id is not None:
@@ -59,13 +73,14 @@ def next_patient_code(session: Session, owner_id: int) -> str:
 
 
 def create_patient(session: Session, user: User, name: str, code: Optional[str] = None,
-                   date_of_birth: Optional[str] = None, sex: Optional[str] = None) -> Patient:
+                   date_of_birth: Optional[str] = None, sex: Optional[str] = None,
+                   age: Optional[int] = None, phone: Optional[str] = None) -> Patient:
     name = validate_name(name)
     code = validate_code(code) if code else next_patient_code(session, user.id)
     if code_taken(session, user.id, code):
         raise HTTPException(status_code=409, detail=f"Patient ID {code} already exists.")
     patient = Patient(owner_id=user.id, display_name=name, patient_code=code,
-                      date_of_birth=date_of_birth, sex=sex)
+                      date_of_birth=date_of_birth, sex=sex, age=age, phone=validate_phone(phone))
     session.add(patient)
     session.commit()
     session.refresh(patient)

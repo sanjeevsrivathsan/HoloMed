@@ -36,3 +36,45 @@ export function clampSizes(sizes: number[], mins: number[], maxes: number[]): nu
   }
   return next.map(round);
 }
+
+// ── Pixel mode: fixed-width side panels plus one flexible panel that takes the rest ──
+
+export interface PixelPanel {
+  min: number;
+  /** Default width in pixels; panels without it are the flexible panel. */
+  px?: number;
+  maxPx?: number;
+}
+
+/** Largest width fixed panel `i` may take: what is left after the other fixed panels and the flexible minimum. */
+function roomFor(widths: number[], panels: PixelPanel[], i: number, width: number): number {
+  const others = panels.reduce((s, p, j) => s + (j !== i && p.px !== undefined ? widths[j] : 0), 0);
+  const flexibleMin = panels.reduce((s, p) => s + (p.px === undefined ? p.min : 0), 0);
+  return width - others - flexibleMin;
+}
+
+/** Enforce min/max and keep the flexible panel at or above its minimum (e.g. after the window got narrower). */
+export function clampPixelWidths(widths: number[], panels: PixelPanel[], width: number): number[] {
+  const next = panels.map((p, i) => (p.px === undefined ? 0
+    : Math.min(Math.max(Number.isFinite(widths[i]) ? widths[i] : p.px, p.min), p.maxPx ?? Infinity)));
+  for (let i = panels.length - 1; i >= 0; i--) {       // shrink the rightmost fixed panels first
+    if (panels[i].px === undefined) continue;
+    const room = roomFor(next, panels, i, width);
+    if (next[i] > room) next[i] = Math.max(panels[i].min, room);
+  }
+  return next.map((n) => Math.round(n));
+}
+
+/**
+ * Move the divider after panel `index` by `delta` px. It resizes the fixed panel next to it
+ * (the left one if fixed, otherwise the right one); the flexible panel absorbs the change.
+ */
+export function resizePixelPair(widths: number[], index: number, delta: number, panels: PixelPanel[], width: number): number[] {
+  const next = [...widths];
+  const target = panels[index]?.px !== undefined ? index : index + 1;
+  if (panels[target]?.px === undefined) return next;
+  const direction = target === index ? 1 : -1;
+  const max = Math.max(panels[target].min, Math.min(panels[target].maxPx ?? Infinity, roomFor(widths, panels, target, width)));
+  next[target] = Math.round(Math.min(Math.max(widths[target] + direction * delta, panels[target].min), max));
+  return next;
+}

@@ -6,7 +6,7 @@ through another patient's id or another user's session.
 """
 import io
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -16,7 +16,7 @@ from sqlmodel import Session, select
 from ..database import get_session
 from ..dependencies.auth import get_current_user
 from ..dependencies.patient import (code_taken, create_patient, get_path_patient, touch, validate_code,
-                                    validate_name)
+                                    validate_name, validate_phone)
 from ..models import AIAnalysis, Instance, MedicalMeasurement, MeasurementRead, Patient, Report, Series, Study, User
 from ..services.audit import log_action
 from ..services.dicom_service import store_patient_dicom
@@ -31,28 +31,36 @@ router = APIRouter(prefix="/api/v1/patients", tags=["Patients"])
 
 Sex = Optional[Literal["female", "male", "other", "unknown"]]
 ISO_DATE = r"^\d{4}-\d{2}-\d{2}$"
+# Whole years; strict so "25" strings, 25.5 or booleans are rejected rather than coerced.
+Age = Optional[Annotated[int, Field(strict=True, ge=0, le=130)]]
 
 
 class PatientCreate(BaseModel):
     name: str = Field(..., max_length=200)
     patient_code: Optional[str] = Field(None, max_length=64)
-    date_of_birth: Optional[str] = Field(None, pattern=ISO_DATE)
+    age: Age = None
     sex: Sex = None
+    phone: Optional[str] = Field(None, max_length=40)
+    date_of_birth: Optional[str] = Field(None, pattern=ISO_DATE)   # kept for API compatibility; not in the UI
 
 
 class PatientUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=200)
     patient_code: Optional[str] = Field(None, max_length=64)
-    date_of_birth: Optional[str] = Field(None, pattern=ISO_DATE)
+    age: Age = None
     sex: Sex = None
+    phone: Optional[str] = Field(None, max_length=40)
+    date_of_birth: Optional[str] = Field(None, pattern=ISO_DATE)
 
 
 class PatientOut(BaseModel):
     id: str
     patient_code: str
     name: str
-    date_of_birth: Optional[str] = None
+    age: Optional[int] = None
     sex: Optional[str] = None
+    phone: Optional[str] = None
+    date_of_birth: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     study_count: int = 0
@@ -76,7 +84,7 @@ def _counts(session: Session, model, owner_id: int) -> dict:
 
 def _out(patient: Patient, studies: dict, reports: dict, analyses_n: dict) -> PatientOut:
     return PatientOut(id=patient.uid, patient_code=patient.patient_code or "", name=patient.display_name,
-                      date_of_birth=patient.date_of_birth, sex=patient.sex,
+                      age=patient.age, sex=patient.sex, phone=patient.phone, date_of_birth=patient.date_of_birth,
                       created_at=_iso(patient.created_at), updated_at=_iso(patient.updated_at),
                       study_count=studies.get(patient.id, 0), report_count=reports.get(patient.id, 0),
                       analysis_count=analyses_n.get(patient.id, 0))
@@ -96,7 +104,8 @@ def list_patients(user: User = Depends(get_current_user), session: Session = Dep
 
 @router.post("", response_model=PatientOut, status_code=201)
 def create(body: PatientCreate, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    patient = create_patient(session, user, body.name, body.patient_code, body.date_of_birth, body.sex)
+    patient = create_patient(session, user, body.name, body.patient_code, body.date_of_birth, body.sex,
+                             body.age, body.phone)
     log_action(session, user.id, "patient_created", {"patient_code": patient.patient_code}, patient_id=patient.id)
     session.commit()
     return _one(session, patient)
@@ -121,6 +130,10 @@ def update_patient(body: PatientUpdate, patient: Patient = Depends(get_path_pati
         patient.date_of_birth = body.date_of_birth
     if body.sex is not None:
         patient.sex = body.sex
+    if body.age is not None:
+        patient.age = body.age
+    if body.phone is not None:
+        patient.phone = validate_phone(body.phone)
     touch(patient)
     session.add(patient)
     log_action(session, patient.owner_id, "patient_updated", {"patient_code": patient.patient_code}, patient_id=patient.id)

@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  filterPatients, normalizePatientCode, ohifViewerUrl, pickActivePatient, suggestPatientCode, validateNewPatient,
+  filterPatients, normalizePatientCode, normalizePhone, ohifViewerUrl, parseAge, patientDetails, pickActivePatient,
+  suggestPatientCode, validateNewPatient,
 } from './patients.ts';
 
 const CR = {
@@ -33,7 +34,19 @@ test('new patient validation mirrors the backend rules', () => {
   assert.match(validateNewPatient({ name: 'A', patient_code: 'has space' }, []).patient_code!, /letters, digits/);
   assert.equal(validateNewPatient({ name: 'A', patient_code: 'hml-test-001' }, ['HML-TEST-001']).patient_code,
     'Patient ID HML-TEST-001 already exists.');
-  assert.equal(validateNewPatient({ name: 'A', patient_code: 'HML-1', date_of_birth: '1/2/90' }, []).date_of_birth, 'Use YYYY-MM-DD.');
+  const ok = { name: 'Test Patient Alpha', patient_code: 'HML-TEST-002', age: '25', sex: '', phone: ' +91 98765  43210 ' };
+  assert.deepEqual(validateNewPatient(ok, []), {});
+  for (const age of ['-1', '131', '25.5', 'abc', '1e2', '2 5']) {
+    assert.match(validateNewPatient({ ...ok, age }, []).age ?? '', /0 to 130/, age);
+  }
+  assert.deepEqual(validateNewPatient({ ...ok, age: '0' }, []), {});
+  assert.deepEqual(validateNewPatient({ ...ok, age: '' }, []), {});
+  for (const phone of ['abc', '12345', '++91 98765', '98765+43210', '+91 98765 43210 12345 67']) {
+    assert.match(validateNewPatient({ ...ok, phone }, []).phone ?? '', /valid phone/, phone);
+  }
+  for (const phone of ['+1 (555) 010-4477', '+44 20 7946 0958', '9876543210', '']) {
+    assert.deepEqual(validateNewPatient({ ...ok, phone }, []), {}, phone);
+  }
   assert.equal(normalizePatientCode('  hml-7 '), 'HML-7');
 });
 
@@ -54,4 +67,15 @@ test('patient search matches code or name, case-insensitively', () => {
   assert.deepEqual(filterPatients(list, 'alpha').map((p) => p.patient_code), ['HML-000001']);
   assert.deepEqual(filterPatients(list, '0002').map((p) => p.name), ['Beta']);
   assert.equal(filterPatients(list, '  ').length, 2);
+});
+
+test('age parsing, phone normalisation and patient detail lines', () => {
+  assert.equal(parseAge(' 25 '), 25);
+  assert.equal(parseAge(''), null);
+  assert.ok(Number.isNaN(parseAge('x')));
+  assert.equal(normalizePhone('  +91  98765   43210 '), '+91 98765 43210');
+  assert.deepEqual(patientDetails({ age: 24, sex: null, phone: '+91 98765 43210' }), [
+    { label: 'Age', value: '24 years' }, { label: 'Sex', value: 'Not specified' }, { label: 'Phone', value: '+91 98765 43210' },
+  ]);
+  assert.equal(patientDetails({ age: null, sex: 'female', phone: null })[1].value, 'Female');
 });

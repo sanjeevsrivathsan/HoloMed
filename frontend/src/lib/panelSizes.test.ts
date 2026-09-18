@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clampSizes, resizePair } from './panelSizes.ts';
+import { clampPixelWidths, clampSizes, resizePair, resizePixelPair } from './panelSizes.ts';
 
 const sum = (a: number[]) => Math.round(a.reduce((s, n) => s + n, 0) * 100) / 100;
 
@@ -31,4 +31,24 @@ test('clamping normalises to 100 and restores minimums on narrow screens', () =>
   const clamped = clampSizes([10, 80, 10], [20, 30, 20], [100, 100, 100]);
   assert.equal(sum(clamped), 100);
   assert.ok(clamped[0] >= 20 && clamped[2] >= 20 && clamped[1] >= 30);
+});
+
+// Imaging: studies | OHIF viewer (flexible) | clinical panel
+const IMAGING = [{ min: 240, px: 320, maxPx: 500 }, { min: 400 }, { min: 280, px: 360, maxPx: 520 }];
+
+test('pixel mode: dividers resize their fixed neighbour and respect px limits', () => {
+  const w = [320, 0, 360];
+  assert.deepEqual(resizePixelPair(w, 0, 120, IMAGING, 1600), [440, 0, 360]);      // studies wider
+  assert.deepEqual(resizePixelPair(w, 0, 900, IMAGING, 1600), [500, 0, 360]);      // capped at maxPx
+  assert.deepEqual(resizePixelPair(w, 0, -900, IMAGING, 1600), [240, 0, 360]);     // floored at min
+  assert.deepEqual(resizePixelPair(w, 1, -100, IMAGING, 1600), [320, 0, 460]);     // clinical wider (drag left)
+  assert.deepEqual(resizePixelPair(w, 1, 900, IMAGING, 1600), [320, 0, 280]);
+});
+
+test('pixel mode: the flexible viewer keeps its minimum width', () => {
+  // 1000px: 1000 - 400 viewer min - 360 clinical = 240 left for studies
+  assert.deepEqual(resizePixelPair([240, 0, 360], 0, 300, IMAGING, 1000), [240, 0, 360]);
+  const clamped = clampPixelWidths([500, 0, 520], IMAGING, 1000);
+  assert.ok(clamped[0] + clamped[2] + 400 <= 1000 || (clamped[0] === 240 && clamped[2] === 280), String(clamped));
+  assert.deepEqual(clampPixelWidths([NaN, 0, 900], IMAGING, 1600), [320, 0, 520]);
 });
