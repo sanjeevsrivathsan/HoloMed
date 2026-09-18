@@ -35,7 +35,9 @@ def upgrade() -> None:
     if not _column_exists("user", "is_active"):
         op.add_column(
             "user",
-            sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+            # sa.true() renders per dialect: true on PostgreSQL, 1 on SQLite (a literal 1 is an
+            # integer, which PostgreSQL rejects as a boolean default).
+            sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         )
         with op.batch_alter_table("user") as batch_op:  # SQLite cannot ALTER COLUMN in place
             batch_op.alter_column("is_active", server_default=None)

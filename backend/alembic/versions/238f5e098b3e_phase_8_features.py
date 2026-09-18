@@ -34,17 +34,113 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_sourcereference_owner_id'), 'sourcereference', ['owner_id'], unique=False)
     op.create_index(op.f('ix_sourcereference_report_id'), 'sourcereference', ['report_id'], unique=False)
-    pass
+    _create_phase8_tables()
     op.add_column('user', sa.Column('google_id', sqlmodel.sql.sqltypes.AutoString(), nullable=True))
     op.create_index(op.f('ix_user_google_id'), 'user', ['google_id'], unique=True)
     # ### end Alembic commands ###
+
+
+# The Phase 8 models (consent, measurement, report summary, storage connection, template) were
+# introduced with this revision, but their tables were only ever created by the app's create_all()
+# at startup. A fresh database (e.g. PostgreSQL) needs them here: 7a1c2e3d4f50 references
+# medicalmeasurement. Databases whose tables startup already created keep them unchanged.
+_PHASE8_TABLES = ('medicalmeasurement', 'consentrecord', 'reportsummary', 'storageconnection', 'template')
+
+
+def _existing_tables() -> set:
+    return set(sa.inspect(op.get_bind()).get_table_names())
+
+
+def _create_phase8_tables() -> None:
+    _str = sqlmodel.sql.sqltypes.AutoString
+    existing = _existing_tables()
+    tables = {
+        'medicalmeasurement': [
+            sa.Column('test_name', _str(), nullable=False),
+            sa.Column('value', sa.Float(), nullable=False),
+            sa.Column('unit', _str(), nullable=False),
+            sa.Column('reference_range', _str(), nullable=True),
+            sa.Column('flag', _str(), nullable=False),
+            sa.Column('report_date', sa.Date(), nullable=False),
+            sa.Column('hospital', _str(), nullable=True),
+            sa.Column('laboratory', _str(), nullable=True),
+            sa.Column('department', _str(), nullable=True),
+            sa.Column('comments', _str(), nullable=True),
+            sa.Column('source_location', _str(), nullable=True),
+            sa.Column('report_id', sa.Integer(), nullable=True),
+            sa.Column('id', sa.Integer(), nullable=False),
+            sa.Column('patient_id', sa.Integer(), nullable=False),
+            sa.Column('owner_id', sa.Integer(), nullable=False),
+            sa.ForeignKeyConstraint(['owner_id'], ['user.id'], ),
+            sa.ForeignKeyConstraint(['patient_id'], ['patient.id'], ),
+            sa.ForeignKeyConstraint(['report_id'], ['report.id'], ),
+            sa.PrimaryKeyConstraint('id'),
+        ],
+        'consentrecord': [
+            sa.Column('recipient', _str(), nullable=False),
+            sa.Column('purpose', _str(), nullable=False),
+            sa.Column('scope', _str(), nullable=False),
+            sa.Column('issued_date', sa.Date(), nullable=False),
+            sa.Column('expiry_date', sa.Date(), nullable=False),
+            sa.Column('revoked', sa.Boolean(), nullable=False),
+            sa.Column('id', sa.Integer(), nullable=False),
+            sa.Column('patient_id', sa.Integer(), nullable=False),
+            sa.Column('owner_id', sa.Integer(), nullable=False),
+            sa.ForeignKeyConstraint(['owner_id'], ['user.id'], ),
+            sa.ForeignKeyConstraint(['patient_id'], ['patient.id'], ),
+            sa.PrimaryKeyConstraint('id'),
+        ],
+        'reportsummary': [
+            sa.Column('mode', _str(), nullable=False),
+            sa.Column('sections', _str(), nullable=False),
+            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.Column('id', sa.Integer(), nullable=False),
+            sa.Column('report_id', sa.Integer(), nullable=False),
+            sa.Column('owner_id', sa.Integer(), nullable=False),
+            sa.ForeignKeyConstraint(['owner_id'], ['user.id'], ),
+            sa.ForeignKeyConstraint(['report_id'], ['report.id'], ),
+            sa.PrimaryKeyConstraint('id'),
+        ],
+        'storageconnection': [
+            sa.Column('provider', _str(), nullable=False),
+            sa.Column('label', _str(), nullable=False),
+            sa.Column('status', _str(), nullable=False),
+            sa.Column('is_primary', sa.Boolean(), nullable=False),
+            sa.Column('description', _str(), nullable=False),
+            sa.Column('id', sa.Integer(), nullable=False),
+            sa.Column('owner_id', sa.Integer(), nullable=False),
+            sa.ForeignKeyConstraint(['owner_id'], ['user.id'], ),
+            sa.PrimaryKeyConstraint('id'),
+        ],
+        'template': [
+            sa.Column('name', _str(), nullable=False),
+            sa.Column('category', _str(), nullable=False),
+            sa.Column('description', _str(), nullable=False),
+            sa.Column('sections', _str(), nullable=False),
+            sa.Column('updated_at', sa.DateTime(), nullable=False),
+            sa.Column('id', sa.Integer(), nullable=False),
+            sa.Column('owner_id', sa.Integer(), nullable=False),
+            sa.ForeignKeyConstraint(['owner_id'], ['user.id'], ),
+            sa.PrimaryKeyConstraint('id'),
+        ],
+    }
+    for name in _PHASE8_TABLES:
+        if name not in existing:
+            op.create_table(name, *tables[name])
+
+
+def _drop_phase8_tables() -> None:
+    existing = _existing_tables()
+    for name in reversed(_PHASE8_TABLES):
+        if name in existing:
+            op.drop_table(name)
 
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
     op.drop_index(op.f('ix_user_google_id'), table_name='user')
     op.drop_column('user', 'google_id')
-    pass
+    _drop_phase8_tables()
     op.drop_index(op.f('ix_sourcereference_report_id'), table_name='sourcereference')
     op.drop_index(op.f('ix_sourcereference_owner_id'), table_name='sourcereference')
     op.drop_table('sourcereference')
