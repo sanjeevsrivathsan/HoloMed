@@ -1,6 +1,8 @@
 """DICOMweb for OHIF: DICOM JSON on request (content negotiation), WADO-RS frames, ownership.
-Synthetic DICOM only."""
+Synthetic DICOM, plus the de-identified SIIM chest X-ray when it is present locally."""
 import io
+import os
+from pathlib import Path
 
 import numpy as np
 import pydicom
@@ -162,3 +164,48 @@ def test_other_users_cannot_read_studies_or_frames(client):
     assert client.get(f"/api/v1/dicomweb/studies/{STUDY_UID}/series", headers=DICOM_JSON).status_code == 404
     frames = f"/api/v1/dicomweb/studies/{STUDY_UID}/series/{SERIES_UID}/instances/{sop}/frames/1"
     assert client.get(frames).status_code == 404
+
+
+# Not committed (licensing, see .gitignore); HOLOMED_REAL_CXR_DICOM can point at a local copy.
+REAL_CXR = Path(os.getenv("HOLOMED_REAL_CXR_DICOM", Path(__file__).parent / "artifacts" / "real_cxr" / "source"
+                          / "1.2.276.0.7230010.3.1.4.8323329.6904.1517875201.850819.dcm"))
+
+
+def test_upload_response_names_the_study_to_open(client):
+    login(client, "ohif-upload@example.com")
+    resp = client.post("/api/v1/medical-data/dicom/upload",
+                       files={"file": ("x.dcm", make_dicom(generate_uid(), compressed=True), "application/dicom")})
+    assert resp.status_code == 200
+    assert resp.json()["study_instance_uid"] == STUDY_UID
+
+
+@pytest.mark.skipif(not REAL_CXR.exists(), reason="de-identified SIIM chest X-ray DICOM not present locally")
+def test_uploaded_real_cxr_is_retrievable_by_ohif(client):
+    login(client, "ohif-cxr@example.com")
+    source = pydicom.dcmread(REAL_CXR)
+    resp = client.post("/api/v1/medical-data/dicom/upload",
+                       files={"file": ("cxr.dcm", REAL_CXR.read_bytes(), "application/dicom")})
+    assert resp.status_code == 200, resp.text
+    study_uid = resp.json()["study_instance_uid"]
+    assert study_uid == source.StudyInstanceUID
+
+    studies = client.get("/api/v1/dicomweb/studies", params={"StudyInstanceUID": study_uid}, headers=DICOM_JSON).json()
+    assert [s["0020000D"]["Value"][0] for s in studies] == [study_uid]
+    series = client.get(f"/api/v1/dicomweb/studies/{study_uid}/series", headers=DICOM_JSON).json()
+    series_uid = series[0]["0020000E"]["Value"][0]
+    assert series_uid == source.SeriesInstanceUID
+
+    meta = client.get(f"/api/v1/dicomweb/studies/{study_uid}/series/{series_uid}/metadata").json()
+    assert len(meta) == 1
+    assert meta[0]["00080018"]["Value"] == [source.SOPInstanceUID]
+    assert meta[0]["00280010"]["Value"] == [1024] and meta[0]["00280011"]["Value"] == [1024]
+    assert meta[0]["00280004"]["Value"] == ["MONOCHROME2"]
+
+    frames = client.get(f"/api/v1/dicomweb/studies/{study_uid}/series/{series_uid}"
+                        f"/instances/{source.SOPInstanceUID}/frames/1")
+    assert frames.status_code == 200
+    (head, body), = parse_multipart(frames)
+    assert "image/jpeg" in head and "transfer-syntax=1.2.840.10008.1.2.4.50" in head
+    image = Image.open(io.BytesIO(body))
+    assert image.size == (1024, 1024)
+    assert len(image.convert("L").getcolors(256)) > 100

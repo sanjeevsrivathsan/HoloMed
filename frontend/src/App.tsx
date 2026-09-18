@@ -34,6 +34,7 @@ import { StorageDelivery } from '@/pages/StorageDelivery';
 import { Settings } from '@/pages/Settings';
 
 import { api, ApiError, type StudyMeta, type PatientResponse } from '@/lib/api';
+import { pickViewerStudy } from '@/lib/imagingStudies';
 import type { ImagingStudy, Template, Report, ReportStatus, AuditEvent, MedicalMeasurement, ConsentRecord, StorageConnection, SourceReference } from '@/lib/types';
 import { isProcessing, summaryFromBackend } from '@/lib/reports';
 import { formatRoute, parseRoute, sameRoute, type AppRoute } from '@/lib/routing';
@@ -185,7 +186,7 @@ function Workspace() {
   // ── Patient profile — fetched from backend ───────────────────────────────
   const [patientDisplayName, setPatientDisplayName] = useState<string | null>(null);
 
-  const fetchBackendData = useCallback(async () => {
+  const fetchBackendData = useCallback(async (preferredStudyId?: string) => {
     setStudiesLoading(true);
     setReportsLoading(true);
     try {
@@ -193,9 +194,7 @@ function Workspace() {
       const data = await api.get<StudyMeta[]>('/api/v1/dicomweb/studies');
       const mapped = data.map(studyMetaToImaging);
       setStudies(mapped);
-      if (!selectedStudyId && mapped.length > 0) {
-        setSelectedStudyId(mapped[0].id);
-      }
+      setSelectedStudyId(pickViewerStudy(mapped, preferredStudyId ?? selectedStudyId));
 
       // Fetch reports
       const reportsData = await api.get<unknown[]>('/api/v1/reports');

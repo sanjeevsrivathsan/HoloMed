@@ -13,6 +13,7 @@ import { ChestXrayScreening } from '@/components/vision/ChestXrayScreening';
 import { api, ApiError, type DicomUploadResponse } from '@/lib/api';
 import { useToast } from '@/context/ToastContext';
 import type { ImagingStudy } from '@/lib/types';
+import { hasViewableImages } from '@/lib/imagingStudies';
 
 /**
  * OHIF is served by the FastAPI backend at /ohif/.
@@ -26,8 +27,8 @@ interface ImagingProps {
   studiesLoading: boolean;
   selectedStudyId: string | null;
   onSelectStudy: (id: string) => void;
-  /** Called after a successful DICOM upload so the study list refreshes */
-  onStudyUploaded: () => void;
+  /** Called after a successful DICOM upload so the study list refreshes and opens the uploaded study */
+  onStudyUploaded: (studyInstanceUid: string) => void;
 }
 
 const toolbarTools = [
@@ -81,8 +82,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
         description: `Instance #${res.instance_id} stored successfully.`,
         variant: 'success',
       });
-      // Refresh the study list so the new study appears
-      onStudyUploaded();
+      onStudyUploaded(res.study_instance_uid);
     } catch (err) {
       if (err instanceof ApiError) {
         addToast({
@@ -214,9 +214,11 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{study.description}</p>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">{study.modality} · {formatDate(study.studyDate)}</p>
                   <div className="flex items-center gap-2">
-                    <StatusBadge variant="success">
-                      Available
-                    </StatusBadge>
+                    {hasViewableImages(study.modality) ? (
+                      <StatusBadge variant="success">Available</StatusBadge>
+                    ) : (
+                      <StatusBadge variant="warning">No images</StatusBadge>
+                    )}
                   </div>
                 </button>
               ))
@@ -271,7 +273,16 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
               </div>
 
               <div className="relative flex flex-1 bg-neutral-950" style={{ minHeight: 400 }}>
-                {viewerOpen ? (
+                {!hasViewableImages(selectedStudy.modality) ? (
+                  <div className="flex flex-1 flex-col items-center justify-center p-8 text-center" role="status">
+                    <ScanLine className="h-10 w-10 text-neutral-600" />
+                    <p className="mt-3 text-sm font-semibold text-neutral-300">No images to display</p>
+                    <p className="mt-1 max-w-sm text-xs text-neutral-500">
+                      This {selectedStudy.modality} study has no pixel data, so the OHIF image viewer cannot show it.
+                      Select an imaging study such as a chest X-ray.
+                    </p>
+                  </div>
+                ) : viewerOpen ? (
                   <iframe
                     title="OHIF DICOM Viewer"
                     src={ohifStudyUrl}

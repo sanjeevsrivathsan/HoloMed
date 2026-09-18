@@ -107,7 +107,7 @@ async def upload_dicom(file: UploadFile = File(...), user: User = Depends(get_cu
     log_action(session, user.id, "dicom_uploaded", {"instance_id": instance.id, "sop_uid": meta["SOPInstanceUID"]})
     session.commit()
     session.refresh(instance)
-    return {"instance_id": instance.id}
+    return {"instance_id": instance.id, "study_instance_uid": meta["StudyInstanceUID"]}
 
 @router.get("/instances/{instance_id}/download")
 def download_instance(instance_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):

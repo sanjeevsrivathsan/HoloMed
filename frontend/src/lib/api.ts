@@ -159,6 +159,7 @@ export interface PatientResponse {
 /** POST /api/v1/medical-data/dicom/upload */
 export interface DicomUploadResponse {
   instance_id: number;
+  study_instance_uid: string;
 }
 
 /** GET /api/v1/dicomweb/studies */
