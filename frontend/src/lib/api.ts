@@ -14,6 +14,19 @@
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 
+// The active patient (set by PatientContext). Sent on every request; the backend verifies that the
+// signed-in user owns it before using it, and scopes patient-owned data to it.
+export const PATIENT_HEADER = 'X-HoloMed-Patient';
+let activePatientId: string | null = null;
+
+export function setActivePatientId(id: string | null): void {
+  activePatientId = id;
+}
+
+export function getActivePatientId(): string | null {
+  return activePatientId;
+}
+
 // ─── Error type ──────────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
@@ -33,9 +46,12 @@ async function request<T>(
   init: RequestInit = {},
 ): Promise<T> {
   const url = `${API_BASE}${path}`;
+  const headers = new Headers(init.headers);
+  if (activePatientId && !headers.has(PATIENT_HEADER)) headers.set(PATIENT_HEADER, activePatientId);
 
   const res = await fetch(url, {
     ...init,
+    headers,
     credentials: 'include', // always send the session cookie
   });
 
@@ -156,10 +172,54 @@ export interface PatientResponse {
   display_name: string;
 }
 
-/** POST /api/v1/medical-data/dicom/upload */
+/** POST /api/v1/medical-data/dicom/upload  |  POST /api/v1/patients/{id}/imaging */
 export interface DicomUploadResponse {
   instance_id: number;
+  patient_id: string;
   study_instance_uid: string;
+  series_instance_uid: string;
+  sop_instance_uid: string;
+  modality: string | null;
+  created: boolean;
+}
+
+/** Saved AI screening (GET /api/v1/patients/{id}/analyses) */
+export interface AnalysisSummary {
+  id: string;
+  study_instance_uid: string | null;
+  sop_instance_uid: string | null;
+  input_format: string;
+  provider: string;
+  model_name: string;
+  model_weights: string;
+  weight_sha256: string;
+  primary_pathology: string;
+  primary_score: number;
+  selected_target: string | null;
+  created_at: string;
+}
+
+/** GET /api/v1/patients/{id}/imaging */
+export interface PatientImagingSeries {
+  series_instance_uid: string;
+  modality: string | null;
+  description: string | null;
+  instance_count: number;
+  first_sop_instance_uid: string;
+  rows: number | null;
+  columns: number | null;
+}
+
+export interface PatientImagingStudy {
+  study_instance_uid: string;
+  modality: string | null;
+  description: string | null;
+  study_date: string | null;
+  uploaded_at: string | null;
+  series_count: number;
+  instance_count: number;
+  series: PatientImagingSeries[];
+  latest_analysis: AnalysisSummary | null;
 }
 
 /** GET /api/v1/dicomweb/studies */

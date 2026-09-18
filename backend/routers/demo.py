@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 
 from ..database import get_session
 from ..dependencies.auth import get_current_user
+from ..dependencies.patient import get_active_patient
 from ..models import ExtractedMeasurement, Patient, Report, User
 from ..routers.medical_data import log_action
 from ..services import report_pipeline as pipeline
@@ -60,26 +61,24 @@ def demo_document(day: date, rows, bp: str) -> bytes:
     return text_pdf(lines)
 
 
-def _demo_reports(session: Session, user: User):
-    return session.exec(select(Report).where(Report.owner_id == user.id, Report.source == DEMO_SOURCE)).all()
+def _demo_reports(session: Session, user: User, patient: Patient):
+    return session.exec(select(Report).where(Report.owner_id == user.id, Report.patient_id == patient.id,
+                                             Report.source == DEMO_SOURCE)).all()
 
 
 @router.get("")
-def demo_status(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    return {"loaded": bool(_demo_reports(session, user)), "report_count": len(_demo_reports(session, user)),
+def demo_status(user: User = Depends(get_current_user), patient: Patient = Depends(get_active_patient),
+                session: Session = Depends(get_session)):
+    reports = _demo_reports(session, user, patient)
+    return {"loaded": bool(reports), "report_count": len(reports),
             "label": "Synthetic demonstration data"}
 
 
 @router.post("/load")
-def load_demo(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    if _demo_reports(session, user):
+def load_demo(user: User = Depends(get_current_user), patient: Patient = Depends(get_active_patient),
+              session: Session = Depends(get_session)):
+    if _demo_reports(session, user, patient):
         raise HTTPException(status_code=409, detail="Demo data is already loaded.")
-    patient = session.exec(select(Patient).where(Patient.owner_id == user.id)).first()
-    if not patient:
-        patient = Patient(owner_id=user.id, display_name="Demo Patient")
-        session.add(patient)
-        session.commit()
-        session.refresh(patient)
 
     engine = session.get_bind()
     created = []
@@ -107,18 +106,19 @@ def load_demo(user: User = Depends(get_current_user), session: Session = Depends
             pipeline.confirm(session, session.get(Report, report.id), day)
             session.commit()
         created.append(report.id)
-    log_action(session, user.id, "demo_data_loaded", {"reports": len(created)})
+    log_action(session, user.id, "demo_data_loaded", {"reports": len(created)}, patient_id=patient.id)
     session.commit()
     return {"loaded": True, "report_ids": created}
 
 
 @router.delete("")
-def clear_demo(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    reports = _demo_reports(session, user)
+def clear_demo(user: User = Depends(get_current_user), patient: Patient = Depends(get_active_patient),
+               session: Session = Depends(get_session)):
+    reports = _demo_reports(session, user, patient)
     for report in reports:
         pipeline.delete_derived(session, report.id)
         delete_file(report.storage_key, report.storage_provider)
         session.delete(report)
-    log_action(session, user.id, "demo_data_removed", {"reports": len(reports)})
+    log_action(session, user.id, "demo_data_removed", {"reports": len(reports)}, patient_id=patient.id)
     session.commit()
     return {"loaded": False, "removed": len(reports)}

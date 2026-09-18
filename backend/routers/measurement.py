@@ -3,8 +3,9 @@ from sqlmodel import Session, select
 from typing import List
 
 from ..database import get_session
-from ..models import MedicalMeasurement, MeasurementRead, MeasurementCreate, User
+from ..models import MedicalMeasurement, MeasurementRead, MeasurementCreate, Patient, User
 from ..dependencies.auth import get_current_user
+from ..dependencies.patient import get_optional_patient
 from .medical_data import log_action
 
 router = APIRouter(prefix="/api/v1/measurements", tags=["Measurements"])
@@ -13,8 +14,11 @@ router = APIRouter(prefix="/api/v1/measurements", tags=["Measurements"])
 def list_measurements(
     patient_id: int | None = None,
     user: User = Depends(get_current_user),
+    active: Patient | None = Depends(get_optional_patient),
     session: Session = Depends(get_session)
 ):
+    if active is not None:
+        patient_id = active.id
     stmt = select(MedicalMeasurement).where(MedicalMeasurement.owner_id == user.id)
     if patient_id is not None:
         stmt = stmt.where(MedicalMeasurement.patient_id == patient_id)

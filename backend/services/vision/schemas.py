@@ -97,5 +97,11 @@ class VisionScreenResponse(BaseModel):
     result_id: Optional[str] = Field(
         default=None,
         description="Short-lived handle for requesting a text explanation of this result (set by the API)")
+    analysis_id: Optional[str] = Field(
+        default=None, description="Persisted analysis id when the result was saved to a patient (set by the API)")
+    patient_id: Optional[str] = Field(default=None, description="Patient the saved analysis belongs to")
+    study_instance_uid: Optional[str] = None
+    series_instance_uid: Optional[str] = None
+    sop_instance_uid: Optional[str] = None
 
     model_config = {"protected_namespaces": ()}

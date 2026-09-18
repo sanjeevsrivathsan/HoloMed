@@ -151,6 +151,19 @@ export interface ImagingStudy {
   deidentified: boolean;
   reportText?: string;
   status: 'available' | 'pending' | 'integration_required';
+  /** First series / instance (what OHIF opens and what AI screening analyzes). */
+  seriesInstanceUid?: string | null;
+  sopInstanceUid?: string | null;
+  instanceCount?: number;
+  rows?: number | null;
+  columns?: number | null;
+  uploadedAt?: string | null;
+  latestAnalysis?: {
+    id: string;
+    primaryPathology: string;
+    primaryScore: number;
+    createdAt: string;
+  } | null;
 }
 
 export interface TemplateSection {

@@ -81,6 +81,9 @@ app.include_router(health.router, prefix="/api/v1")
 app.include_router(medical_data.router)
 app.include_router(auth.router)
 app.include_router(dicomweb.router)
+app.include_router(dicomweb.patient_router)
+from .routers import patients
+app.include_router(patients.router)
 from .routers import report, audit, measurement, template, consent, storage_connection, search, ai
 app.include_router(report.router)
 app.include_router(ai.router)
@@ -112,15 +115,20 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 class SPAStaticFiles(StaticFiles):
     """Static files with a single-page-app fallback: client-side routes such as
     /ohif/viewer?StudyInstanceUIDs=… (deep links, browser refresh) get index.html.
-    Paths that look like files (have an extension) still return 404 when missing."""
+    Paths that look like files (have an extension) still return 404 when missing.
+
+    Every response is `Cache-Control: no-cache`: the browser must revalidate (cheap 304s), so a
+    cached copy of the viewer or of app-config.js (its data sources) can never outlive a change."""
 
     async def get_response(self, path, scope):
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             if exc.status_code != 404 or "." in os.path.basename(path):
                 raise
-            return await super().get_response("index.html", scope)
+            response = await super().get_response("index.html", scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 app.mount("/ohif", SPAStaticFiles(directory="frontend/ohif", html=True), name="ohif")

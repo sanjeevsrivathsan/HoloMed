@@ -5,7 +5,7 @@ from datetime import datetime
 
 class Study(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    patient_id: int = Field(foreign_key="patient.id")
+    patient_id: int = Field(foreign_key="patient.id", index=True)
     owner_id: int = Field(index=True)
     study_instance_uid: str = Field(index=True)
     modality: str | None = None

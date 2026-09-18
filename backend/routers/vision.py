@@ -1,19 +1,21 @@
 import logging
 import threading
 import time
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from .. import config
 from ..database import get_session
 from ..dependencies.auth import get_current_user
-from ..models import User
+from ..dependencies.patient import default_patient, get_optional_patient
+from ..models import AIAnalysis, Instance, Patient, Series, User
+from ..services.dicom_service import store_patient_dicom
 from ..services.explanation import cxr_explanation
-from ..services.vision import results
+from ..services.vision import analyses, results
 from ..services.vision.errors import (InvalidImageError, UnknownTargetError, UnsupportedImageError,
                                       VisionModelError, VisionProviderUnavailable)
 from ..services.vision.provider import get_vision_provider, provider_key
@@ -44,22 +46,8 @@ async def _read_limited(file: UploadFile, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-@router.post("/screen", response_model=VisionScreenResponse)
-async def screen(
-    file: UploadFile = File(..., description="Chest radiograph: PNG, JPEG, or DICOM"),
-    target: Optional[str] = Form(None, description="Optional Grad-CAM target; must be a model output"),
-    user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
-):
-    """Chest radiograph screening assistance with a Grad-CAM visual explanation.
-
-    The upload is processed in memory and not stored. Scores are model scores,
-    not diagnoses; every response carries the safety notice.
-    """
-    data = await _read_limited(file, config.VISION_MAX_UPLOAD_BYTES)
-    if not data:
-        raise HTTPException(status_code=400, detail="Empty upload")
-
+async def run_screen(data: bytes, target: Optional[str], user: User):
+    """Run the configured vision provider; returns (response with result_id, provider name)."""
     started = time.perf_counter()
     try:
         provider = get_vision_provider()
@@ -90,12 +78,72 @@ async def screen(
     logger.info("vision_screen provider=%s format=%s target=%s ms=%.0f",
                 provider.name, result.input.format, result.explanation.target_pathology,
                 (time.perf_counter() - started) * 1000)
+    return result, provider.name
+
+
+def log_screen(session: Session, user: User, result: VisionScreenResponse, patient: Optional[Patient] = None) -> None:
     log_action(session, user.id, "vision_screen", {
         "input_format": result.input.format,
         "weights": result.model.weights,
         "target_pathology": result.explanation.target_pathology,
-    })
+    }, patient_id=patient.id if patient else None)
     session.commit()
+
+
+def attach_analysis(result: VisionScreenResponse, analysis: AIAnalysis, patient: Patient, session: Session) -> None:
+    summary = analyses.summary(session, analysis)
+    result.analysis_id = analysis.uid
+    result.patient_id = patient.uid
+    result.study_instance_uid = summary["study_instance_uid"]
+    result.sop_instance_uid = summary["sop_instance_uid"]
+    if analysis.instance_id:
+        instance = session.get(Instance, analysis.instance_id)
+        series = session.get(Series, instance.series_id) if instance else None
+        result.series_instance_uid = series.series_instance_uid if series else None
+
+
+@router.post("/screen", response_model=VisionScreenResponse)
+async def screen(
+    file: UploadFile = File(..., description="Chest radiograph: PNG, JPEG, or DICOM"),
+    target: Optional[str] = Form(None, description="Optional Grad-CAM target; must be a model output"),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+    save: Annotated[bool, Form(description="Save the result (and a DICOM input) to the active patient")] = False,
+    analysis_id: Annotated[Optional[str], Form(description="Saved analysis this run re-targets")] = None,
+    active: Annotated[Optional[Patient], Depends(get_optional_patient)] = None,
+):
+    """Chest radiograph screening assistance with a Grad-CAM visual explanation.
+
+    By default the upload is processed in memory and not stored. With ``save`` the result is
+    kept as an analysis of the active patient and a DICOM input is stored unchanged as that
+    patient's imaging study. Scores are model scores, not diagnoses; every response carries
+    the safety notice.
+    """
+    data = await _read_limited(file, config.VISION_MAX_UPLOAD_BYTES)
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty upload")
+    result, provider_name = await run_screen(data, target or None, user)
+
+    if not (save or analysis_id):
+        log_screen(session, user, result)
+        return result
+    patient = active or default_patient(session, user)
+    if analysis_id:
+        analysis = session.exec(select(AIAnalysis).where(AIAnalysis.uid == analysis_id, AIAnalysis.owner_id == user.id,
+                                                         AIAnalysis.patient_id == patient.id)).first()
+        if analysis is None:
+            raise HTTPException(status_code=404, detail="Analysis not found")
+        analysis.selected_target = result.explanation.target_pathology
+        session.add(analysis)
+        session.commit()
+    else:
+        study = instance = None
+        if result.input.format == "dicom":
+            stored = store_patient_dicom(session, user, patient, data, file.filename or "screening.dcm")
+            study, instance = stored.study, stored.instance
+        analysis = analyses.record(session, user, patient, result, data, provider_name, study, instance)
+    attach_analysis(result, analysis, patient, session)
+    log_screen(session, user, result, patient)
     return result
 
 
@@ -127,6 +175,8 @@ async def explain(
     if not response.cached:
         log_action(session, user.id, "vision_explanation", {"target_pathology": response.target_pathology})
         session.commit()
+        analyses.save_text_explanation(session, user.id, body.result_id, response.target_pathology,
+                                       response.model_dump(mode="json"))
     return response
 
 

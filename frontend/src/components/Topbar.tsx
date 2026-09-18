@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { ThemeToggle } from './ThemeControls';
 import type { PageKey } from './Sidebar';
 import { useAuth } from '@/context/AuthContext';
+import { PatientSelector } from './PatientSelector';
 import type { Role } from '@/lib/types';
 
 const pageTitles: Record<PageKey, string> = {
@@ -21,10 +22,9 @@ const pageTitles: Record<PageKey, string> = {
 interface TopbarProps {
   currentPage: PageKey;
   onMobileMenu: () => void;
-  patientName: string;
 }
 
-export function Topbar({ currentPage, onMobileMenu, patientName }: TopbarProps) {
+export function Topbar({ currentPage, onMobileMenu }: TopbarProps) {
   const { user, signOut, role, switchRole } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -63,10 +63,7 @@ export function Topbar({ currentPage, onMobileMenu, patientName }: TopbarProps) 
 
       <div className="flex items-center gap-2 sm:gap-3">
         <div className="hidden sm:flex items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 dark:border-neutral-700">
-            <User className="h-3.5 w-3.5 text-neutral-400" />
-            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">{patientName}</span>
-          </div>
+          <PatientSelector />
         </div>
 
         <ThemeToggle />

@@ -29,14 +29,16 @@ def upgrade() -> None:
             sa.Column("hashed_password", sa.String(), nullable=False, server_default=""),
         )
         # Remove default after population
-        op.alter_column("user", "hashed_password", server_default=None)
+        with op.batch_alter_table("user") as batch_op:  # SQLite cannot ALTER COLUMN in place
+            batch_op.alter_column("hashed_password", server_default=None)
     # Add is_active if missing
     if not _column_exists("user", "is_active"):
         op.add_column(
             "user",
             sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
         )
-        op.alter_column("user", "is_active", server_default=None)
+        with op.batch_alter_table("user") as batch_op:  # SQLite cannot ALTER COLUMN in place
+            batch_op.alter_column("is_active", server_default=None)
 
 def downgrade() -> None:
     if _column_exists("user", "is_active"):

@@ -31,7 +31,7 @@ try {
   const page = await (await browser.newContext({ viewport: { width: 1600, height: 1000 } })).newPage();
   const dicomweb = [];
   const errors = [];
-  page.on('response', (r) => { if (r.url().includes('/api/v1/dicomweb/')) dicomweb.push(r); });
+  page.on('response', (r) => { if (r.url().includes('/dicomweb/')) dicomweb.push(r); });
   page.on('pageerror', (e) => errors.push(e.message));
 
   step('sign in as a fresh user and upload the fixture unchanged');
@@ -49,7 +49,10 @@ try {
   const iframe = page.locator('iframe[title="OHIF DICOM Viewer"]');
   await page.locator('button', { hasText: 'CR ·' }).first().click();
   await iframe.waitFor({ timeout: 15000 });
-  assert.equal(await iframe.getAttribute('src'), `/ohif/viewer?StudyInstanceUIDs=${encodeURIComponent(STUDY)}`);
+  const launch = new URL(await iframe.getAttribute('src'), BASE);
+  assert.equal(launch.pathname, '/ohif/viewer/holomed');   // patient-scoped DICOMweb data source
+  assert.equal(launch.searchParams.get('studyInstanceUIDs'), STUDY);
+  assert.match(launch.searchParams.get('url'), /^\/api\/v1\/patients\/[0-9a-f-]{36}\/dicomweb\/ohif-config$/);
 
   step('a hidden viewer is mounted again when the study is selected');
   await page.getByRole('button', { name: 'Hide viewer' }).click();
@@ -88,6 +91,8 @@ try {
   assert.equal(frame.status(), 200);
   assert.match(frame.headers()['content-type'], /^multipart\/related; type="image\/jpeg"/);
   assert.deepEqual(dicomweb.filter((r) => r.status() !== 200).map((r) => `${r.status()} ${r.url()}`), []);
+  const patientRoot = launch.searchParams.get('url').replace(/\/ohif-config$/, '/');
+  assert.ok(dicomweb.every((r) => new URL(r.url()).pathname.startsWith(patientRoot)), 'OHIF queried outside the patient root');
 
   step('the viewport canvas shows an image, not a black frame');
   const pixels = await viewer.evaluate(() => {

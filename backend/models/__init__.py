@@ -2,6 +2,7 @@ from .user import User
 from .report import Report, ReportRead
 from .audit_log import AuditLog, AuditRead
 from .patient import Patient
+from .ai_analysis import AIAnalysis
 from .study import Study
 from .series import Series
 from .instance import Instance
@@ -21,6 +22,7 @@ __all__ = [
     "AuditLog",
     "AuditRead",
     "Patient",
+    "AIAnalysis",
     "Study",
     "Series",
     "Instance",

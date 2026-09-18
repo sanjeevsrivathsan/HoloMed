@@ -3,7 +3,8 @@
  *
  * Integration status per feature:
  *   ✅ Authentication    — real backend (AuthContext)
- *   ✅ Imaging studies   — fetched from GET /api/v1/dicomweb/studies (QIDO-RS)
+ *   ✅ Patients          — PatientContext (GET/POST /api/v1/patients); every request carries the active patient
+ *   ✅ Imaging studies   — GET /api/v1/patients/{id}/imaging (the active patient's stored DICOM)
  *   ✅ Reports          — /api/v1/reports (upload → extraction → review → summary)
  *   ✅ Measurements     — /api/v1/measurements (values confirmed during report review)
  *   🔶 Templates        — local state (no backend Template endpoint yet)
@@ -14,10 +15,11 @@
  * Replace each section as the corresponding backend endpoint is implemented.
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { ToastProvider } from '@/context/ToastContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { PatientProvider, usePatients } from '@/context/PatientContext';
 import { AuthScreen } from '@/components/AuthScreen';
 import { Sidebar, type PageKey } from '@/components/Sidebar';
 import { Topbar } from '@/components/Topbar';
@@ -33,7 +35,7 @@ import { PrivacyCenter } from '@/pages/PrivacyCenter';
 import { StorageDelivery } from '@/pages/StorageDelivery';
 import { Settings } from '@/pages/Settings';
 
-import { api, ApiError, type StudyMeta, type PatientResponse } from '@/lib/api';
+import { api, ApiError, type PatientImagingStudy } from '@/lib/api';
 import { pickViewerStudy } from '@/lib/imagingStudies';
 import type { ImagingStudy, Template, Report, ReportStatus, AuditEvent, MedicalMeasurement, ConsentRecord, StorageConnection, SourceReference } from '@/lib/types';
 import { isProcessing, summaryFromBackend } from '@/lib/reports';
@@ -127,27 +129,42 @@ function auditFromBackend(log: any): AuditEvent {
   };
 }
 
-// ── Map QIDO StudyMeta → frontend ImagingStudy shape ─────────────────────────
+// ── Map a patient's stored study → frontend ImagingStudy shape ───────────────
 
-function studyMetaToImaging(s: StudyMeta, index: number): ImagingStudy {
+function imagingFromBackend(patientId: string, s: PatientImagingStudy, index: number): ImagingStudy {
+  const first = s.series[0];
   return {
-    id: s.StudyInstanceUID,
-    patientId: '',                         // not returned by QIDO endpoint
-    accessionNumber: `ACC-${index + 1}`,   // backend doesn't expose this yet
-    modality: (s.Modality ?? 'Unknown') as ImagingStudy['modality'],
-    description: s.Description ?? s.Modality ?? 'Imaging Study',
-    studyDate: s.CreatedDate.split('T')[0],
-    bodyPart: 'Unknown',                   // not returned by QIDO endpoint
-    seriesCount: 0,                        // not returned by QIDO endpoint
+    id: s.study_instance_uid,
+    patientId,
+    accessionNumber: `ACC-${index + 1}`,
+    modality: (s.modality ?? 'Unknown') as ImagingStudy['modality'],
+    description: s.description ?? s.modality ?? 'Imaging Study',
+    studyDate: s.study_date ?? (s.uploaded_at ?? '').slice(0, 10),
+    bodyPart: 'Unknown',
+    seriesCount: s.series_count,
     deidentified: false,
     status: 'available',
+    seriesInstanceUid: first?.series_instance_uid ?? null,
+    sopInstanceUid: first?.first_sop_instance_uid ?? null,
+    instanceCount: s.instance_count,
+    rows: first?.rows ?? null,
+    columns: first?.columns ?? null,
+    uploadedAt: utc(s.uploaded_at) ?? null,
+    latestAnalysis: s.latest_analysis && {
+      id: s.latest_analysis.id,
+      primaryPathology: s.latest_analysis.primary_pathology,
+      primaryScore: s.latest_analysis.primary_score,
+      createdAt: s.latest_analysis.created_at,
+    },
   };
 }
 
 // ── Workspace (rendered after authentication) ─────────────────────────────────
 
 function Workspace() {
-  const { isAuthenticated, loading: authLoading, user } = useAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { activePatient, error: patientsError, refreshPatients } = usePatients();
+  const patientId = activePatient?.id ?? null;
 
   // ── Page navigation ──────────────────────────────────────────────────────
   // Workspace route is mirrored in the URL (History API): Back/Forward, refresh and deep links work.
@@ -182,35 +199,38 @@ function Workspace() {
   const [studies, setStudies] = useState<ImagingStudy[]>([]);
   const [studiesLoading, setStudiesLoading] = useState(false);
   const [selectedStudyId, setSelectedStudyId] = useState<string | null>(null);
+  // Imaging mode lives here so it survives navigating away from Imaging and back.
+  const [imagingMode, setImagingMode] = useState<'screening' | 'viewer'>('screening');
 
-  // ── Patient profile — fetched from backend ───────────────────────────────
-  const [patientDisplayName, setPatientDisplayName] = useState<string | null>(null);
-
-  const fetchBackendData = useCallback(async (preferredStudyId?: string) => {
+  // The active patient's imaging studies; keeps the preferred (e.g. just-uploaded) study selected.
+  const refreshImaging = useCallback(async (preferredStudyId?: string | null, fresh = false) => {
+    if (!patientId) return;
     setStudiesLoading(true);
+    try {
+      const data = await api.get<PatientImagingStudy[]>(`/api/v1/patients/${patientId}/imaging`);
+      const mapped = data.map((s, i) => imagingFromBackend(patientId, s, i));
+      setStudies(mapped);
+      setSelectedStudyId((current) => pickViewerStudy(mapped, preferredStudyId ?? (fresh ? null : current)));
+    } finally {
+      setStudiesLoading(false);
+    }
+  }, [patientId]);
+
+  const fetchBackendData = useCallback(async (preferredStudyId?: string, fresh = false) => {
+    if (!patientId) return;
     setReportsLoading(true);
     try {
-      // Fetch studies
-      const data = await api.get<StudyMeta[]>('/api/v1/dicomweb/studies');
-      const mapped = data.map(studyMetaToImaging);
-      setStudies(mapped);
-      setSelectedStudyId(pickViewerStudy(mapped, preferredStudyId ?? selectedStudyId));
+      await refreshImaging(preferredStudyId, fresh);
 
       // Fetch reports
       const reportsData = await api.get<unknown[]>('/api/v1/reports');
       const mappedReports = reportsData.map(reportFromBackend);
       setReports(mappedReports);
-      if (!selectedReportId && mappedReports.length > 0) {
+      if ((fresh || !selectedReportId) && mappedReports.length > 0) {
         setSelectedReportId(mappedReports[0].id);
         if (parseRoute(window.location.pathname).page === 'reports') {
           window.history.replaceState({ holomed: true }, '', formatRoute({ page: 'reports', reportId: mappedReports[0].id }));
         }
-      }
-
-      // Fetch patients to get display name
-      const patients = await api.get<PatientResponse[]>('/api/v1/medical-data/patients');
-      if (patients.length > 0) {
-        setPatientDisplayName(patients[0].display_name);
       }
 
       // Fetch audit logs
@@ -275,15 +295,32 @@ function Workspace() {
       setStudiesLoading(false);
       setReportsLoading(false);
     }
-  }, [selectedStudyId, selectedReportId]);
+  }, [patientId, refreshImaging, selectedReportId]);
 
-  // Fetch data once the user is authenticated
+  // Load the active patient's data; switching patients first clears the previous patient's data.
+  const loadedPatient = useRef<string | null>(null);
   useEffect(() => {
-    if (isAuthenticated) {
-      void fetchBackendData();
+    if (!isAuthenticated || !patientId) return;
+    const switching = loadedPatient.current !== null && loadedPatient.current !== patientId;
+    loadedPatient.current = patientId;
+    if (switching) {
+      setStudies([]);
+      setSelectedStudyId(null);
+      setReports([]);
+      setSelectedReportId(null);
+      setClinicalReportId(null);
+      setMeasurements([]);
+      setSourceReferences([]);
+      setAuditEvents([]);
+      setConsents([]);
+      const page = parseRoute(window.location.pathname).page;
+      if (page === 'reports' || page === 'clinical') {
+        window.history.replaceState({ holomed: true }, '', formatRoute({ page, reportId: null }));
+      }
     }
+    void fetchBackendData(undefined, switching);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]);
+  }, [isAuthenticated, patientId]);
 
   // Lightweight refresh of report-derived data (reports, measurements, sources, activity).
   const refreshReports = useCallback(async () => {
@@ -422,9 +459,26 @@ function Workspace() {
     return <AuthScreen />;
   }
 
+  // Every page is patient-scoped: wait for the active patient instead of rendering without one.
+  if (!activePatient) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-neutral-50 dark:bg-neutral-950">
+        {patientsError ? (
+          <>
+            <p className="text-sm text-neutral-600 dark:text-neutral-300">{patientsError}</p>
+            <button onClick={() => void refreshPatients()} className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white">
+              Try again
+            </button>
+          </>
+        ) : (
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-teal-500 border-t-transparent" aria-label="Loading patient" />
+        )}
+      </div>
+    );
+  }
+
   const clinicalReport = reports.find((r) => r.id === clinicalReportId) || null;
-  // Patient display name: prioritize backend patient, then auth user displayName, then default fallback
-  const finalPatientName = patientDisplayName || (user ? user.displayName : 'Patient');
+  const finalPatientName = activePatient?.name ?? 'Patient';
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
@@ -459,7 +513,6 @@ function Workspace() {
         <Topbar
           currentPage={currentPage}
           onMobileMenu={() => setMobileSidebarOpen(true)}
-          patientName={finalPatientName}
         />
         <main className="flex-1 p-4 sm:p-6">
           {currentPage === 'dashboard' && (
@@ -501,11 +554,14 @@ function Workspace() {
           )}
           {currentPage === 'imaging' && (
             <Imaging
+              patient={activePatient}
+              mode={imagingMode}
+              onModeChange={setImagingMode}
               studies={studies}
               studiesLoading={studiesLoading}
               selectedStudyId={selectedStudyId}
               onSelectStudy={setSelectedStudyId}
-              onStudyUploaded={fetchBackendData}
+              onStudyUploaded={(uid) => void refreshImaging(uid)}
             />
           )}
           {currentPage === 'templates' && (
@@ -549,7 +605,9 @@ function App() {
     <ThemeProvider>
       <ToastProvider>
         <AuthProvider>
-          <Workspace />
+          <PatientProvider>
+            <Workspace />
+          </PatientProvider>
         </AuthProvider>
       </ToastProvider>
     </ThemeProvider>

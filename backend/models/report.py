@@ -6,7 +6,7 @@ from datetime import datetime
 class Report(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     owner_id: int = Field(foreign_key="user.id")
-    patient_id: int | None = Field(default=None, foreign_key="patient.id")
+    patient_id: int | None = Field(default=None, foreign_key="patient.id", index=True)
     
     # Core metadata
     title: str = Field(default="Untitled Report")

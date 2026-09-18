@@ -1,214 +1,31 @@
+"""DICOMweb (QIDO-RS / WADO-RS) over the caller's stored DICOM.
+
+Two roots expose the same handlers:
+  /api/v1/dicomweb                          — every study the signed-in user owns
+  /api/v1/patients/{patient_uid}/dicomweb   — one owned patient's studies (used by OHIF)
+The patient root is what HoloMed launches OHIF with, so OHIF can only ever list and load
+the selected patient's studies.
+"""
+import fnmatch
+import io
+import json
+import uuid
+from dataclasses import dataclass
+from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
-from typing import List, Optional
 
-from ..dependencies.auth import get_current_user
-from ..models import Study, Series, Instance, AuditLog, User
 from ..database import get_session
+from ..dependencies.auth import get_current_user
+from ..dependencies.patient import owned_patient
+from ..models import AuditLog, Instance, Patient, Series, Study, User
+from ..models.dicomweb_schemas import InstanceMeta, SeriesMeta, StudyMeta
 from ..services.storage import retrieve_file
-from ..models.dicomweb_schemas import StudyMeta, SeriesMeta, InstanceMeta
 
 router = APIRouter(prefix="/api/v1/dicomweb", tags=["DICOMweb"])
-
-
-def log_action(session: Session, user_id: int, action: str, details: dict | None = None):
-    # Simple audit logging (mirroring existing medical_data router behavior)
-    safe_details = {k: v for k, v in (details or {}).items() if "name" not in k.lower() and "dob" not in k.lower()}
-    import json
-    entry = AuditLog(user_id=user_id, action=action, details=json.dumps(safe_details) if safe_details else None)
-    session.add(entry)
-    session.commit()
-
-
-@router.get("/studies", response_model=List[StudyMeta])
-def qido_studies(request: Request, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    stmt = select(Study).where(Study.owner_id == user.id)
-    studies = session.exec(stmt).all()
-    log_action(session, user.id, "dicomweb_qido_studies")
-    if wants_dicom_json(request):
-        wanted = _uid_filter(request, "StudyInstanceUID")
-        return JSONResponse([study_dicom_json(session, user, s) for s in studies
-                             if wanted is None or s.study_instance_uid in wanted], media_type=DICOM_JSON)
-    return [StudyMeta(
-        StudyInstanceUID=s.study_instance_uid,
-        Modality=s.modality,
-        CreatedDate=s.created_at.isoformat(),
-        Description=s.description,
-    ) for s in studies]
-
-
-@router.get("/studies/{study_uid}", response_model=StudyMeta)
-def qido_study(study_uid: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    stmt = select(Study).where(Study.study_instance_uid == study_uid, Study.owner_id == user.id)
-    study = session.exec(stmt).first()
-    if not study:
-        raise HTTPException(status_code=404, detail="Study not found")
-    log_action(session, user.id, "dicomweb_qido_study", {"uid": study_uid})
-    return StudyMeta(
-        StudyInstanceUID=study.study_instance_uid,
-        Modality=study.modality,
-        CreatedDate=study.created_at.isoformat(),
-        Description=study.description,
-    )
-
-
-@router.get("/studies/{study_uid}/series", response_model=List[SeriesMeta])
-def qido_series(study_uid: str, request: Request, user: User = Depends(get_current_user),
-                session: Session = Depends(get_session)):
-    stmt = (
-        select(Series)
-        .where(
-            Series.study_id == select(Study.id).where(Study.study_instance_uid == study_uid, Study.owner_id == user.id).scalar_subquery()
-        )
-    )
-    series_list = session.exec(stmt).all()
-    if not series_list:
-        raise HTTPException(status_code=404, detail="Series not found")
-    log_action(session, user.id, "dicomweb_qido_series", {"study_uid": study_uid})
-    if wants_dicom_json(request):
-        study = _owned_study(session, user, study_uid)
-        wanted = _uid_filter(request, "SeriesInstanceUID")
-        return JSONResponse([series_dicom_json(session, user, study, s) for s in series_list
-                             if wanted is None or s.series_instance_uid in wanted], media_type=DICOM_JSON)
-    return [SeriesMeta(SeriesInstanceUID=s.series_instance_uid, Modality=s.modality) for s in series_list]
-
-
-@router.get("/studies/{study_uid}/series/{series_uid}", response_model=SeriesMeta)
-def qido_series_detail(study_uid: str, series_uid: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    stmt = (
-        select(Series)
-        .where(
-            Series.series_instance_uid == series_uid,
-            Series.study_id == select(Study.id).where(Study.study_instance_uid == study_uid, Study.owner_id == user.id).scalar_subquery(),
-        )
-    )
-    series = session.exec(stmt).first()
-    if not series:
-        raise HTTPException(status_code=404, detail="Series not found")
-    log_action(session, user.id, "dicomweb_qido_series_detail", {"study_uid": study_uid, "series_uid": series_uid})
-    return SeriesMeta(SeriesInstanceUID=series.series_instance_uid, Modality=series.modality)
-
-
-@router.get("/studies/{study_uid}/series/{series_uid}/instances", response_model=List[InstanceMeta])
-def qido_instances(study_uid: str, series_uid: str, request: Request, user: User = Depends(get_current_user),
-                   session: Session = Depends(get_session)):
-    stmt = (
-        select(Instance)
-        .where(
-            Instance.series_id == select(Series.id).where(
-                Series.series_instance_uid == series_uid,
-                Series.study_id == select(Study.id).where(Study.study_instance_uid == study_uid, Study.owner_id == user.id).scalar_subquery(),
-            ).scalar_subquery()
-        )
-    )
-    instances = session.exec(stmt).all()
-    if not instances:
-        raise HTTPException(status_code=404, detail="Instances not found")
-    log_action(session, user.id, "dicomweb_qido_instances", {"study_uid": study_uid, "series_uid": series_uid})
-    if wants_dicom_json(request):
-        study = _owned_study(session, user, study_uid)
-        series = session.exec(select(Series).where(Series.series_instance_uid == series_uid,
-                                                   Series.study_id == study.id)).first()
-        return JSONResponse([instance_dicom_json(study, series, i) for i in instances], media_type=DICOM_JSON)
-    return [InstanceMeta(SOPInstanceUID=i.sop_instance_uid) for i in instances]
-
-
-@router.get("/studies/{study_uid}/metadata")
-def wado_study_metadata(study_uid: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    stmt = (
-        select(Instance)
-        .join(Series)
-        .join(Study)
-        .where(Study.study_instance_uid == study_uid, Study.owner_id == user.id)
-    )
-    instances = session.exec(stmt).all()
-    if not instances:
-        raise HTTPException(status_code=404, detail="Study/instances not found")
-        
-    metadata_list = []
-    import io
-    import pydicom
-    for instance in instances:
-        file_bytes = retrieve_file(instance.storage_key, instance.storage_provider)
-        if file_bytes:
-            ds = pydicom.dcmread(io.BytesIO(file_bytes), stop_before_pixels=True)
-            # Suppress specific VRs that cause issues or are too large
-            metadata_list.append(ds.to_json_dict(suppress_invalid_tags=True))
-            
-    log_action(session, user.id, "dicomweb_wado_study_metadata", {"study_uid": study_uid})
-    from fastapi.responses import JSONResponse
-    return JSONResponse(content=metadata_list, media_type="application/dicom+json")
-
-
-@router.get("/studies/{study_uid}/series/{series_uid}/metadata")
-def wado_series_metadata(study_uid: str, series_uid: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    stmt = (
-        select(Instance)
-        .join(Series)
-        .join(Study)
-        .where(
-            Series.series_instance_uid == series_uid,
-            Study.study_instance_uid == study_uid,
-            Study.owner_id == user.id
-        )
-    )
-    instances = session.exec(stmt).all()
-    if not instances:
-        raise HTTPException(status_code=404, detail="Series/instances not found")
-        
-    metadata_list = []
-    import io
-    import pydicom
-    for instance in instances:
-        file_bytes = retrieve_file(instance.storage_key, instance.storage_provider)
-        if file_bytes:
-            ds = pydicom.dcmread(io.BytesIO(file_bytes), stop_before_pixels=True)
-            metadata_list.append(ds.to_json_dict(suppress_invalid_tags=True))
-            
-    log_action(session, user.id, "dicomweb_wado_series_metadata", {"study_uid": study_uid, "series_uid": series_uid})
-    from fastapi.responses import JSONResponse
-    return JSONResponse(content=metadata_list, media_type="application/dicom+json")
-
-
-@router.get("/studies/{study_uid}/series/{series_uid}/instances/{sop_uid}")
-def wado_instance(study_uid: str, series_uid: str, sop_uid: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    # Verify ownership chain
-    stmt = (
-        select(Instance)
-        .where(
-            Instance.sop_instance_uid == sop_uid,
-            Instance.series_id == select(Series.id).where(
-                Series.series_instance_uid == series_uid,
-                Series.study_id == select(Study.id).where(Study.study_instance_uid == study_uid, Study.owner_id == user.id).scalar_subquery(),
-            ).scalar_subquery(),
-        )
-    )
-    instance = session.exec(stmt).first()
-    if not instance:
-        raise HTTPException(status_code=404, detail="Instance not found")
-    # Retrieve raw DICOM file from storage abstraction
-    file_bytes = retrieve_file(instance.storage_key, instance.storage_provider)
-    if not file_bytes:
-        raise HTTPException(status_code=404, detail="File not found in storage")
-    # Build multipart/related response expected by OHIF (boundary must be unique per response)
-    import uuid
-    boundary = uuid.uuid4().hex
-    # Construct multipart body as bytes to avoid encoding issues
-    multipart_body = (
-        f"--{boundary}\r\n".encode("utf-8")
-        + b"Content-Type: application/dicom\r\n\r\n"
-        + file_bytes
-        + f"\r\n--{boundary}--\r\n".encode("utf-8")
-    )
-    log_action(session, user.id, "dicomweb_wado_instance", {"study_uid": study_uid, "series_uid": series_uid, "sop_uid": sop_uid})
-    return Response(content=multipart_body, media_type=f"multipart/related; type=application/dicom; boundary={boundary}")
-
-
-# ── Standard DICOMweb representations (used by the OHIF viewer) ─────────────────
-# QIDO-RS responses above keep HoloMed's compact JSON for the HoloMed UI. Clients that ask for
-# application/dicom+json (OHIF) receive standard DICOM JSON instead, and pixel data is served by
-# the WADO-RS frames endpoint below. Every query stays scoped to the signed-in owner.
+patient_router = APIRouter(prefix="/api/v1/patients/{patient_uid}/dicomweb", tags=["DICOMweb"])
 
 DICOM_JSON = "application/dicom+json"
 
@@ -220,13 +37,85 @@ _FRAME_CONTENT_TYPES = {
     "1.2.840.10008.1.2.5": "image/dicom-rle",
 }
 
+# Mirrors the "dicomweb" data source in frontend/ohif/app-config.js.
+OHIF_SOURCE_OPTIONS = {
+    "qidoSupportsIncludeField": False, "imageRendering": "wadors", "thumbnailRendering": "wadors",
+    "enableStudyLazyLoad": True, "supportsFuzzyMatching": False, "supportsWildcard": True,
+    "staticWado": False, "omitQuotationForMultipartRequest": True,
+}
+
+
+@dataclass
+class DicomScope:
+    user: User
+    patient: Optional[Patient]
+
+    @property
+    def patient_id(self) -> Optional[int]:
+        return self.patient.id if self.patient else None
+
+
+def get_scope(request: Request, user: User = Depends(get_current_user),
+              session: Session = Depends(get_session)) -> DicomScope:
+    patient_uid = request.path_params.get("patient_uid")
+    return DicomScope(user=user, patient=owned_patient(session, user, patient_uid) if patient_uid else None)
+
+
+def log_action(session: Session, scope: DicomScope, action: str, details: dict | None = None):
+    safe_details = {k: v for k, v in (details or {}).items() if "name" not in k.lower() and "dob" not in k.lower()}
+    session.add(AuditLog(user_id=scope.user.id, patient_id=scope.patient_id, action=action,
+                         details=json.dumps(safe_details) if safe_details else None))
+    session.commit()
+
+
+# ── Scoped queries ──────────────────────────────────────────────────────────────
+
+def _studies(session: Session, scope: DicomScope, study_uid: Optional[str] = None) -> List[Study]:
+    stmt = select(Study).where(Study.owner_id == scope.user.id)
+    if scope.patient is not None:
+        stmt = stmt.where(Study.patient_id == scope.patient.id)
+    if study_uid is not None:
+        stmt = stmt.where(Study.study_instance_uid == study_uid)
+    return session.exec(stmt.order_by(Study.id)).all()
+
+
+def _owned_study(session: Session, scope: DicomScope, study_uid: str) -> Study:
+    studies = _studies(session, scope, study_uid)
+    if not studies:
+        raise HTTPException(status_code=404, detail="Study not found")
+    return studies[0]
+
+
+def _series_of(session: Session, study: Study, series_uid: Optional[str] = None) -> List[Series]:
+    stmt = select(Series).where(Series.study_id == study.id)
+    if series_uid is not None:
+        stmt = stmt.where(Series.series_instance_uid == series_uid)
+    return session.exec(stmt.order_by(Series.id)).all()
+
+
+def _owned_series(session: Session, scope: DicomScope, study_uid: str, series_uid: str) -> tuple:
+    study = _owned_study(session, scope, study_uid)
+    series = _series_of(session, study, series_uid)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    return study, series[0]
+
+
+def _instances_for(session: Session, scope: DicomScope, study: Study, series: Optional[Series] = None) -> List[Instance]:
+    stmt = select(Instance).join(Series, Series.id == Instance.series_id).where(
+        Series.study_id == study.id, Instance.owner_id == scope.user.id)
+    if series is not None:
+        stmt = stmt.where(Series.id == series.id)
+    return session.exec(stmt.order_by(Instance.id)).all()
+
+
+# ── Representations ────────────────────────────────────────────────────────────
 
 def wants_dicom_json(request: Request) -> bool:
     return DICOM_JSON in request.headers.get("accept", "").lower()
 
 
 def _read_header(instance: Instance):
-    import io
     import pydicom
     data = retrieve_file(instance.storage_key, instance.storage_provider)
     if not data:
@@ -251,17 +140,19 @@ def _uid_filter(request: Request, name: str) -> Optional[set]:
     return {u for u in raw.replace("\\", ",").split(",") if u}
 
 
-def _instances_for(session: Session, user: User, study_id: int, series_id: Optional[int] = None) -> List[Instance]:
-    stmt = select(Instance).join(Series, Series.id == Instance.series_id).where(
-        Series.study_id == study_id, Instance.owner_id == user.id)
-    if series_id is not None:
-        stmt = stmt.where(Series.id == series_id)
-    return session.exec(stmt).all()
+def _patient_id_filter(request: Request) -> Optional[str]:
+    """QIDO PatientID match key (OHIF sends it as 00100020 to find a patient's other studies)."""
+    return request.query_params.get("PatientID") or request.query_params.get("00100020") or None
 
 
-def study_dicom_json(session: Session, user: User, study: Study) -> dict:
-    series = session.exec(select(Series).where(Series.study_id == study.id)).all()
-    instances = _instances_for(session, user, study.id)
+def _matches(value: Optional[str], pattern: str) -> bool:
+    value = value or ""
+    return fnmatch.fnmatchcase(value, pattern) if any(c in pattern for c in "*?") else value == pattern
+
+
+def study_dicom_json(session: Session, scope: DicomScope, study: Study) -> dict:
+    series = _series_of(session, study)
+    instances = _instances_for(session, scope, study)
     header = _read_header(instances[0]) if instances else None
     get = (lambda k: getattr(header, k, None)) if header is not None else (lambda k: None)
     modalities = sorted({s.modality for s in series if s.modality})
@@ -282,8 +173,8 @@ def study_dicom_json(session: Session, user: User, study: Study) -> dict:
     })
 
 
-def series_dicom_json(session: Session, user: User, study: Study, series: Series) -> dict:
-    instances = _instances_for(session, user, study.id, series.id)
+def series_dicom_json(session: Session, scope: DicomScope, study: Study, series: Series) -> dict:
+    instances = _instances_for(session, scope, study, series)
     header = _read_header(instances[0]) if instances else None
     get = (lambda k: getattr(header, k, None)) if header is not None else (lambda k: None)
     return _dicom_json({
@@ -313,17 +204,19 @@ def instance_dicom_json(study: Study, series: Series, instance: Instance) -> dic
     })
 
 
-def _owned_study(session: Session, user: User, study_uid: str) -> Study:
-    study = session.exec(select(Study).where(Study.study_instance_uid == study_uid,
-                                             Study.owner_id == user.id)).first()
-    if not study:
-        raise HTTPException(status_code=404, detail="Study not found")
-    return study
+def _full_metadata(instances: List[Instance]) -> list:
+    import pydicom
+    out = []
+    for instance in instances:
+        data = retrieve_file(instance.storage_key, instance.storage_provider)
+        if data:
+            ds = pydicom.dcmread(io.BytesIO(data), stop_before_pixels=True)
+            out.append(ds.to_json_dict(suppress_invalid_tags=True))
+    return out
 
 
 def _frame_parts(data: bytes, frame_numbers: List[int]) -> List[tuple]:
     """[(content_type, bytes)] for the requested 1-based frame numbers."""
-    import io
     import pydicom
     from pydicom.encaps import generate_frames
 
@@ -347,9 +240,110 @@ def _frame_parts(data: bytes, frame_numbers: List[int]) -> List[tuple]:
     return [(content_type, pixels[(n - 1) * frame_size: n * frame_size]) for n in frame_numbers]
 
 
-@router.get("/studies/{study_uid}/series/{series_uid}/instances/{sop_uid}/frames/{frame_list}")
+# ── QIDO-RS ────────────────────────────────────────────────────────────────────
+# HoloMed's own UI gets compact JSON; clients asking for application/dicom+json (OHIF) get
+# standard DICOM JSON.
+
+def qido_studies(request: Request, scope: DicomScope = Depends(get_scope), session: Session = Depends(get_session)):
+    studies = _studies(session, scope)
+    log_action(session, scope, "dicomweb_qido_studies")
+    wanted = _uid_filter(request, "StudyInstanceUID")
+    if wanted is not None:
+        studies = [s for s in studies if s.study_instance_uid in wanted]
+    patient_key = _patient_id_filter(request)
+    if wants_dicom_json(request):
+        rows = [study_dicom_json(session, scope, s) for s in studies]
+        if patient_key:
+            rows = [r for r in rows if _matches((r.get("00100020", {}).get("Value") or [None])[0], patient_key)]
+        return JSONResponse(rows, media_type=DICOM_JSON)
+    return [StudyMeta(StudyInstanceUID=s.study_instance_uid, Modality=s.modality,
+                      CreatedDate=s.created_at.isoformat(), Description=s.description) for s in studies]
+
+
+def qido_study(study_uid: str, scope: DicomScope = Depends(get_scope), session: Session = Depends(get_session)):
+    study = _owned_study(session, scope, study_uid)
+    log_action(session, scope, "dicomweb_qido_study", {"uid": study_uid})
+    return StudyMeta(StudyInstanceUID=study.study_instance_uid, Modality=study.modality,
+                     CreatedDate=study.created_at.isoformat(), Description=study.description)
+
+
+def qido_series(study_uid: str, request: Request, scope: DicomScope = Depends(get_scope),
+                session: Session = Depends(get_session)):
+    study = _owned_study(session, scope, study_uid)
+    series_list = _series_of(session, study)
+    if not series_list:
+        raise HTTPException(status_code=404, detail="Series not found")
+    log_action(session, scope, "dicomweb_qido_series", {"study_uid": study_uid})
+    if wants_dicom_json(request):
+        wanted = _uid_filter(request, "SeriesInstanceUID")
+        return JSONResponse([series_dicom_json(session, scope, study, s) for s in series_list
+                             if wanted is None or s.series_instance_uid in wanted], media_type=DICOM_JSON)
+    return [SeriesMeta(SeriesInstanceUID=s.series_instance_uid, Modality=s.modality) for s in series_list]
+
+
+def qido_series_detail(study_uid: str, series_uid: str, scope: DicomScope = Depends(get_scope),
+                       session: Session = Depends(get_session)):
+    _, series = _owned_series(session, scope, study_uid, series_uid)
+    log_action(session, scope, "dicomweb_qido_series_detail", {"study_uid": study_uid, "series_uid": series_uid})
+    return SeriesMeta(SeriesInstanceUID=series.series_instance_uid, Modality=series.modality)
+
+
+def qido_instances(study_uid: str, series_uid: str, request: Request, scope: DicomScope = Depends(get_scope),
+                   session: Session = Depends(get_session)):
+    study, series = _owned_series(session, scope, study_uid, series_uid)
+    instances = _instances_for(session, scope, study, series)
+    if not instances:
+        raise HTTPException(status_code=404, detail="Instances not found")
+    log_action(session, scope, "dicomweb_qido_instances", {"study_uid": study_uid, "series_uid": series_uid})
+    if wants_dicom_json(request):
+        return JSONResponse([instance_dicom_json(study, series, i) for i in instances], media_type=DICOM_JSON)
+    return [InstanceMeta(SOPInstanceUID=i.sop_instance_uid) for i in instances]
+
+
+# ── WADO-RS ────────────────────────────────────────────────────────────────────
+
+def wado_study_metadata(study_uid: str, scope: DicomScope = Depends(get_scope), session: Session = Depends(get_session)):
+    study = _owned_study(session, scope, study_uid)
+    instances = _instances_for(session, scope, study)
+    if not instances:
+        raise HTTPException(status_code=404, detail="Study/instances not found")
+    log_action(session, scope, "dicomweb_wado_study_metadata", {"study_uid": study_uid})
+    return JSONResponse(content=_full_metadata(instances), media_type=DICOM_JSON)
+
+
+def wado_series_metadata(study_uid: str, series_uid: str, scope: DicomScope = Depends(get_scope),
+                         session: Session = Depends(get_session)):
+    study, series = _owned_series(session, scope, study_uid, series_uid)
+    instances = _instances_for(session, scope, study, series)
+    if not instances:
+        raise HTTPException(status_code=404, detail="Series/instances not found")
+    log_action(session, scope, "dicomweb_wado_series_metadata", {"study_uid": study_uid, "series_uid": series_uid})
+    return JSONResponse(content=_full_metadata(instances), media_type=DICOM_JSON)
+
+
+def _owned_instance(session: Session, scope: DicomScope, study_uid: str, series_uid: str, sop_uid: str) -> Instance:
+    study, series = _owned_series(session, scope, study_uid, series_uid)
+    instance = next((i for i in _instances_for(session, scope, study, series) if i.sop_instance_uid == sop_uid), None)
+    if instance is None:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    return instance
+
+
+def wado_instance(study_uid: str, series_uid: str, sop_uid: str, scope: DicomScope = Depends(get_scope),
+                  session: Session = Depends(get_session)):
+    instance = _owned_instance(session, scope, study_uid, series_uid, sop_uid)
+    file_bytes = retrieve_file(instance.storage_key, instance.storage_provider)
+    if not file_bytes:
+        raise HTTPException(status_code=404, detail="File not found in storage")
+    boundary = uuid.uuid4().hex
+    body = (f"--{boundary}\r\n".encode() + b"Content-Type: application/dicom\r\n\r\n"
+            + file_bytes + f"\r\n--{boundary}--\r\n".encode())
+    log_action(session, scope, "dicomweb_wado_instance", {"study_uid": study_uid, "series_uid": series_uid, "sop_uid": sop_uid})
+    return Response(content=body, media_type=f"multipart/related; type=application/dicom; boundary={boundary}")
+
+
 def wado_frames(study_uid: str, series_uid: str, sop_uid: str, frame_list: str,
-                user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+                scope: DicomScope = Depends(get_scope), session: Session = Depends(get_session)):
     """WADO-RS RetrieveFrames: pixel data of the requested frames as multipart/related."""
     try:
         frame_numbers = [int(f) for f in frame_list.split(",") if f.strip()]
@@ -357,19 +351,13 @@ def wado_frames(study_uid: str, series_uid: str, sop_uid: str, frame_list: str,
         raise HTTPException(status_code=400, detail="Invalid frame list")
     if not frame_numbers:
         raise HTTPException(status_code=400, detail="Invalid frame list")
-    study = _owned_study(session, user, study_uid)
-    instance = session.exec(select(Instance).join(Series, Series.id == Instance.series_id).where(
-        Instance.sop_instance_uid == sop_uid, Series.series_instance_uid == series_uid,
-        Series.study_id == study.id, Instance.owner_id == user.id)).first()
-    if not instance:
-        raise HTTPException(status_code=404, detail="Instance not found")
+    instance = _owned_instance(session, scope, study_uid, series_uid, sop_uid)
     data = retrieve_file(instance.storage_key, instance.storage_provider)
     if not data:
         raise HTTPException(status_code=404, detail="File not found in storage")
     parts = _frame_parts(data, frame_numbers)
-    log_action(session, user.id, "dicomweb_wado_frames", {"study_uid": study_uid, "series_uid": series_uid,
-                                                          "sop_uid": sop_uid, "frames": len(frame_numbers)})
-    import uuid
+    log_action(session, scope, "dicomweb_wado_frames", {"study_uid": study_uid, "series_uid": series_uid,
+                                                        "sop_uid": sop_uid, "frames": len(frame_numbers)})
     boundary = uuid.uuid4().hex
     body = b""
     for content_type, payload in parts:
@@ -377,3 +365,29 @@ def wado_frames(study_uid: str, series_uid: str, sop_uid: str, frame_list: str,
     body += f"--{boundary}--\r\n".encode()
     part_type = parts[0][0].split(";")[0]
     return Response(content=body, media_type=f'multipart/related; type="{part_type}"; boundary={boundary}')
+
+
+_ROUTES = [
+    ("/studies", qido_studies, None),
+    ("/studies/{study_uid}", qido_study, StudyMeta),
+    ("/studies/{study_uid}/series", qido_series, None),
+    ("/studies/{study_uid}/series/{series_uid}", qido_series_detail, SeriesMeta),
+    ("/studies/{study_uid}/series/{series_uid}/instances", qido_instances, None),
+    ("/studies/{study_uid}/metadata", wado_study_metadata, None),
+    ("/studies/{study_uid}/series/{series_uid}/metadata", wado_series_metadata, None),
+    ("/studies/{study_uid}/series/{series_uid}/instances/{sop_uid}", wado_instance, None),
+    ("/studies/{study_uid}/series/{series_uid}/instances/{sop_uid}/frames/{frame_list}", wado_frames, None),
+]
+for _path, _endpoint, _model in _ROUTES:
+    for _router in (router, patient_router):
+        _router.add_api_route(_path, _endpoint, methods=["GET"], response_model=_model)
+
+
+@patient_router.get("/ohif-config")
+def ohif_config(scope: DicomScope = Depends(get_scope)):
+    """Data source definition for OHIF's `dicomwebproxy` source: this patient's DICOMweb roots."""
+    root = f"/api/v1/patients/{scope.patient.uid}/dicomweb"
+    return {"servers": {"dicomWeb": [{
+        "name": "holomed", "friendlyName": "HoloMed patient DICOMweb",
+        "qidoRoot": root, "wadoRoot": root, "wadoUriRoot": root, **OHIF_SOURCE_OPTIONS,
+    }]}}

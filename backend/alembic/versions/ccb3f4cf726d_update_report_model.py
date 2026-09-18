@@ -31,10 +31,11 @@ def upgrade() -> None:
     op.add_column('report', sa.Column('laboratory', sqlmodel.sql.sqltypes.AutoString(), nullable=True))
     op.add_column('report', sa.Column('department', sqlmodel.sql.sqltypes.AutoString(), nullable=True))
     op.add_column('report', sa.Column('doctor', sqlmodel.sql.sqltypes.AutoString(), nullable=True))
-    op.create_foreign_key(None, 'report', 'patient', ['patient_id'], ['id'])
-    op.alter_column('user', 'hashed_password',
-               existing_type=sa.VARCHAR(),
-               nullable=False)
+    # SQLite cannot ALTER constraints/columns in place; batch mode rebuilds the table.
+    with op.batch_alter_table('report') as batch_op:
+        batch_op.create_foreign_key('fk_report_patient_id', 'patient', ['patient_id'], ['id'])
+    with op.batch_alter_table('user') as batch_op:
+        batch_op.alter_column('hashed_password', existing_type=sa.VARCHAR(), nullable=False)
     # ### end Alembic commands ###
 
 

@@ -3,8 +3,11 @@ from sqlmodel import Session, select
 from typing import List
 
 from ..database import get_session
-from ..models import ConsentRecord, ConsentRead, ConsentCreate, User
+from typing import Optional
+
+from ..models import ConsentRecord, ConsentRead, ConsentCreate, Patient, User
 from ..dependencies.auth import get_current_user
+from ..dependencies.patient import get_active_patient, get_optional_patient
 from .medical_data import log_action
 
 router = APIRouter(prefix="/api/v1/consents", tags=["Consents"])
@@ -12,9 +15,12 @@ router = APIRouter(prefix="/api/v1/consents", tags=["Consents"])
 @router.get("", response_model=List[ConsentRead])
 def list_consents(
     user: User = Depends(get_current_user),
+    active: Optional[Patient] = Depends(get_optional_patient),
     session: Session = Depends(get_session)
 ):
     stmt = select(ConsentRecord).where(ConsentRecord.owner_id == user.id)
+    if active is not None:
+        stmt = stmt.where(ConsentRecord.patient_id == active.id)
     consents = session.exec(stmt).all()
     return consents
 
@@ -22,13 +28,15 @@ def list_consents(
 def create_consent(
     consent_in: ConsentCreate,
     user: User = Depends(get_current_user),
+    patient: Patient = Depends(get_active_patient),
     session: Session = Depends(get_session)
 ):
-    consent = ConsentRecord.model_validate(consent_in, update={"owner_id": user.id})
+    # The consent always belongs to a patient the caller owns, whatever patient_id the body names.
+    consent = ConsentRecord.model_validate(consent_in, update={"owner_id": user.id, "patient_id": patient.id})
     session.add(consent)
     session.commit()
     session.refresh(consent)
-    log_action(session, user.id, "consent_created", {"consent_id": consent.id})
+    log_action(session, user.id, "consent_created", {"consent_id": consent.id}, patient_id=patient.id)
     session.commit()
     return consent
 

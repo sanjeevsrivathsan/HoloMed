@@ -59,3 +59,6 @@ backend/tests/artifacts/phase4_e2e/07_siim_dicom.png
 
 # Failed download placeholder from Phase 1 (a 14-byte "404" text file, not an image)
 backend/tests/artifacts/public_cxr_sample.png
+
+# Local database backups (made before migrations); never commit patient data
+data/*.db.bak-*

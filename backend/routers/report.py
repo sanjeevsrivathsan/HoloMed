@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 
 from ..database import get_session
 from ..dependencies.auth import get_current_user
+from ..dependencies.patient import get_active_patient, get_optional_patient
 from ..models import (ExtractedMeasurement, ExtractedMeasurementRead, MedicalMeasurement, Patient, Report,
                       ReportExtractionRead, ReportRead, ReportSummary, ReportSummaryRead, User)
 from ..routers.medical_data import log_action
@@ -137,6 +138,7 @@ async def upload_report(
     doctor: Optional[str] = Form(None),
     report_date: Optional[str] = Form(None),
     user: User = Depends(get_current_user),
+    patient: Patient = Depends(get_active_patient),
     session: Session = Depends(get_session)
 ):
     content = await file.read(MAX_REPORT_BYTES + 1)
@@ -154,14 +156,6 @@ async def upload_report(
     title = (title or "").strip() or os.path.splitext(filename)[0][:120] or "Untitled Report"
     if len(title) > 200:
         raise HTTPException(status_code=422, detail="Title is too long.")
-
-    # Get or create patient (just like DICOM upload)
-    patient = session.exec(select(Patient).where(Patient.owner_id == user.id)).first()
-    if not patient:
-        patient = Patient(owner_id=user.id, display_name="Demo Patient")
-        session.add(patient)
-        session.commit()
-        session.refresh(patient)
 
     storage_key = store_file(content, filename)
     report = Report(
@@ -186,7 +180,7 @@ async def upload_report(
     session.commit()
     session.refresh(report)
     pipeline.add_source_reference(session, report)
-    log_action(session, user.id, "report_uploaded", {"report_id": report.id, "format": fmt})
+    log_action(session, user.id, "report_uploaded", {"report_id": report.id, "format": fmt}, patient_id=patient.id)
     session.commit()
 
     pipeline.start(session, report)
@@ -199,8 +193,13 @@ async def upload_report(
 def list_reports(
     patient_id: Optional[int] = None,
     user: User = Depends(get_current_user),
+    active: Optional[Patient] = Depends(get_optional_patient),
     session: Session = Depends(get_session)
 ):
+    return list_report_items(session, user, active.id if active else patient_id)
+
+
+def list_report_items(session: Session, user: User, patient_id: Optional[int]) -> list:
     stmt = select(Report).where(Report.owner_id == user.id)
     if patient_id:
         stmt = stmt.where(Report.patient_id == patient_id)

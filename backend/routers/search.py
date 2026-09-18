@@ -14,7 +14,8 @@ from sqlmodel import Session, select
 
 from ..database import get_session
 from ..dependencies.auth import get_current_user
-from ..models import MedicalMeasurement, Report, SourceReference, User
+from ..dependencies.patient import get_optional_patient
+from ..models import MedicalMeasurement, Patient, Report, SourceReference, User
 from ..services import lab_parser
 from ..services.report_pipeline import date_is_confirmed
 
@@ -24,9 +25,15 @@ router = APIRouter(prefix="/api/v1/search", tags=["Search"])
 @router.get("/source-references")
 def get_source_references(
     user: User = Depends(get_current_user),
+    active: Optional[Patient] = Depends(get_optional_patient),
     session: Session = Depends(get_session)
 ):
-    return session.exec(select(SourceReference).where(SourceReference.owner_id == user.id)).all()
+    refs = session.exec(select(SourceReference).where(SourceReference.owner_id == user.id)).all()
+    if active is None:
+        return refs
+    report_ids = {str(i) for i in session.exec(select(Report.id).where(Report.owner_id == user.id,
+                                                                       Report.patient_id == active.id)).all()}
+    return [r for r in refs if r.report_id in report_ids]
 
 
 class SearchRequest(BaseModel):
@@ -151,6 +158,7 @@ def _keyword_matcher(query: str):
 def perform_search(
     request: SearchRequest,
     user: User = Depends(get_current_user),
+    active: Optional[Patient] = Depends(get_optional_patient),
     session: Session = Depends(get_session)
 ):
     query = request.query.strip()
@@ -158,8 +166,12 @@ def perform_search(
     structured = bool(spec.tests or spec.flags or spec.since or spec.report_types)
     keyword_measurement, keyword_report = _keyword_matcher(query)
 
-    measurements = session.exec(select(MedicalMeasurement).where(MedicalMeasurement.owner_id == user.id)
-                                .order_by(MedicalMeasurement.report_date)).all()
+    m_stmt = select(MedicalMeasurement).where(MedicalMeasurement.owner_id == user.id)
+    r_stmt = select(Report).where(Report.owner_id == user.id)
+    if active is not None:
+        m_stmt = m_stmt.where(MedicalMeasurement.patient_id == active.id)
+        r_stmt = r_stmt.where(Report.patient_id == active.id)
+    measurements = session.exec(m_stmt.order_by(MedicalMeasurement.report_date)).all()
     matched_measurements = []
     for m in measurements:
         if structured:
@@ -175,7 +187,7 @@ def perform_search(
             continue
         matched_measurements.append(m)
 
-    reports = session.exec(select(Report).where(Report.owner_id == user.id)).all()
+    reports = session.exec(r_stmt).all()
     with_matches = {m.report_id for m in matched_measurements if m.report_id is not None}
     matched_reports = []
     for r in reports:

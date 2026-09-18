@@ -1,40 +1,43 @@
 import { useState, useRef } from 'react';
 import {
-  ScanLine, FileText, Sparkles, ShieldCheck, ExternalLink, Upload, Loader2,
+  ScanLine, FileText, Sparkles, ExternalLink, Upload, Loader2, User,
 } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
 import { ResizablePanels } from '@/components/ResizablePanels';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
-import { SafetyNotice } from '@/components/SafetyNotice';
 import { EmptyState } from '@/components/States';
 import { ChestXrayScreening } from '@/components/vision/ChestXrayScreening';
 import { api, ApiError, type DicomUploadResponse } from '@/lib/api';
 import { useToast } from '@/context/ToastContext';
 import type { ImagingStudy } from '@/lib/types';
 import { hasViewableImages } from '@/lib/imagingStudies';
+import { ohifViewerUrl, patientLabel, type PatientSummary } from '@/lib/patients';
 
 /**
- * OHIF is served by the FastAPI backend at /ohif/.
- * In development, Vite proxy forwards /ohif/* to 127.0.0.1:8001, so /ohif/ works (OHIF routerBasename is "/ohif/").
- * In production, set VITE_OHIF_URL to the absolute URL if needed.
+ * OHIF is served by the FastAPI backend at /ohif/ (Vite proxies it in development).
+ * The viewer is launched per patient and study: see ohifViewerUrl.
  */
 const OHIF_BASE = ((import.meta.env.VITE_OHIF_URL as string | undefined) ?? '/ohif/').replace(/\/?$/, '/');
 
+export type ImagingMode = 'screening' | 'viewer';
+
 interface ImagingProps {
+  patient: PatientSummary | null;
+  mode: ImagingMode;
+  onModeChange: (mode: ImagingMode) => void;
   studies: ImagingStudy[];
   studiesLoading: boolean;
   selectedStudyId: string | null;
   onSelectStudy: (id: string) => void;
-  /** Called after a successful DICOM upload so the study list refreshes and opens the uploaded study */
+  /** Called after a DICOM is stored for the patient so the study list refreshes and opens it */
   onStudyUploaded: (studyInstanceUid: string) => void;
 }
 
-type ImagingMode = 'screening' | 'viewer';
-
-export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStudy, onStudyUploaded }: ImagingProps) {
+export function Imaging({
+  patient, mode, onModeChange, studies, studiesLoading, selectedStudyId, onSelectStudy, onStudyUploaded,
+}: ImagingProps) {
   const { addToast } = useToast();
-  const [mode, setMode] = useState<ImagingMode>('screening');
   const [viewerOpen, setViewerOpen] = useState(true);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -42,49 +45,44 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
   const selectedStudy = studies.find((s) => s.id === selectedStudyId) || null;
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-  // ── OHIF viewer URL ───────────────────────────────────────────────────────
-  // When a study is selected, OHIF is opened with StudyInstanceUIDs query param.
-  // The study ID is the StudyInstanceUID from the QIDO response.
-  const ohifStudyUrl = selectedStudy
-    ? `${OHIF_BASE}viewer?StudyInstanceUIDs=${encodeURIComponent(selectedStudy.id)}`
-    : OHIF_BASE;
+  // The selected study of the active patient — never a default or previous study.
+  const ohifStudyUrl = patient && selectedStudy
+    ? ohifViewerUrl(OHIF_BASE, patient.id, { studyInstanceUid: selectedStudy.id, seriesInstanceUid: selectedStudy.seriesInstanceUid })
+    : null;
 
-  // ── DICOM upload ──────────────────────────────────────────────────────────
+  const switchMode = (next: ImagingMode) => {
+    onModeChange(next);
+    setViewerOpen(true);
+  };
+
+  const openInOhif = (studyInstanceUid: string) => {
+    onSelectStudy(studyInstanceUid);
+    switchMode('viewer');
+  };
+
+  // ── DICOM upload (stored under the active patient) ────────────────────────
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    // Reset file input so the same file can be re-uploaded if needed
+    if (!file || !patient) return;
     e.target.value = '';
-
     setUploading(true);
     try {
       const form = new FormData();
       form.append('file', file);
-      const res = await api.postMultipart<DicomUploadResponse>(
-        '/api/v1/medical-data/dicom/upload',
-        form,
-      );
+      const res = await api.postMultipart<DicomUploadResponse>(`/api/v1/patients/${patient.id}/imaging`, form);
       addToast({
         title: 'DICOM uploaded',
-        description: `Instance #${res.instance_id} stored successfully.`,
+        description: `${res.modality ?? 'Study'} stored for ${patient.patient_code}.`,
         variant: 'success',
       });
       onStudyUploaded(res.study_instance_uid);
       setViewerOpen(true);
     } catch (err) {
-      if (err instanceof ApiError) {
-        addToast({
-          title: 'Upload failed',
-          description: err.detail,
-          variant: 'error',
-        });
-      } else {
-        addToast({
-          title: 'Upload failed',
-          description: 'Could not reach the server.',
-          variant: 'error',
-        });
-      }
+      addToast({
+        title: 'Upload failed',
+        description: err instanceof ApiError ? err.detail : 'Could not reach the server.',
+        variant: 'error',
+      });
     } finally {
       setUploading(false);
     }
@@ -99,6 +97,10 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
             <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
               {mode === 'screening' ? 'Chest X-Ray AI Screening' : 'OHIF Diagnostic Imaging'}
             </h2>
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400" data-testid="imaging-patient">
+              <User className="h-3 w-3" />
+              {patient ? `Patient: ${patient.patient_code} · ${patient.name}` : 'No patient selected'}
+            </p>
           </div>
           <div className="flex items-center gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800" role="tablist" aria-label="Imaging mode">
             {([
@@ -109,7 +111,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
                 key={key}
                 role="tab"
                 aria-selected={mode === key}
-                onClick={() => { setMode(key); setViewerOpen(true); }}
+                onClick={() => switchMode(key)}
                 className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   mode === key
                     ? 'bg-white text-teal-700 shadow-sm dark:bg-neutral-950 dark:text-teal-300'
@@ -124,36 +126,42 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
         </div>
         {mode === 'viewer' && (
         <div className="flex items-center gap-2">
-          <StatusBadge variant={selectedStudy?.deidentified ? 'success' : 'warning'}>
-            {selectedStudy?.deidentified ? 'De-identified study' : 'Check de-identification'}
-          </StatusBadge>
+          <StatusBadge variant="warning">Check de-identification</StatusBadge>
           <Button variant="secondary" size="sm" onClick={() => setViewerOpen((open) => !open)}>
             {viewerOpen ? 'Hide viewer' : 'Show viewer'}
           </Button>
-          <Button size="sm" onClick={() => window.open(ohifStudyUrl, '_blank', 'noopener,noreferrer')}>
+          <Button size="sm" disabled={!ohifStudyUrl} onClick={() => ohifStudyUrl && window.open(ohifStudyUrl, '_blank', 'noopener,noreferrer')}>
             <ExternalLink className="h-3.5 w-3.5" /> Open OHIF
           </Button>
         </div>
         )}
       </div>
 
-    {mode === 'screening' && <ChestXrayScreening />}
+    {mode === 'screening' && patient && (
+      <ChestXrayScreening
+        key={patient.id}
+        patient={patient}
+        study={selectedStudy}
+        onSaved={(studyUid) => studyUid && onStudyUploaded(studyUid)}
+        onOpenInOhif={openInOhif}
+      />
+    )}
 
     {mode === 'viewer' && (
     <ResizablePanels id="imaging-viewer" className="flex-1 lg:min-h-0" breakpoint={1024} panels={[
-      { label: 'study list', min: 220, size: 24, max: 45 },
-      { label: 'viewer', min: 420, size: 52 },
-      { label: 'radiology report', min: 220, size: 24, max: 45 },
+      { label: 'study list', min: 220, size: 20, max: 40 },
+      { label: 'viewer', min: 480, size: 58 },
+      { label: 'clinical panel', min: 220, size: 22, max: 40 },
     ]}>
       {/* Left: Study List */}
       <div className="h-full lg:overflow-y-auto">
         <Card className="lg:h-full flex flex-col">
           <CardHeader
             title="Imaging Studies"
+            subtitle={patient ? patient.patient_code : undefined}
             icon={<ScanLine className="h-4.5 w-4.5" />}
             action={
               <div className="flex items-center gap-1">
-                {/* Hidden file input */}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -165,20 +173,16 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
                   size="sm"
                   variant="ghost"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  title="Upload DICOM file"
+                  disabled={uploading || !patient}
+                  title="Upload DICOM file for this patient"
                 >
-                  {uploading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Upload className="h-4 w-4" />
-                  )}
+                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 </Button>
               </div>
             }
           />
-          <div className="flex-1 divide-y divide-neutral-100 dark:divide-neutral-800 lg:overflow-y-auto">
-            {studiesLoading ? (
+          <div className="flex-1 divide-y divide-neutral-100 dark:divide-neutral-800 lg:overflow-y-auto" data-testid="study-list">
+            {studiesLoading && studies.length === 0 ? (
               <div className="flex items-center justify-center p-8">
                 <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
               </div>
@@ -186,7 +190,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
               <div className="p-4">
                 <EmptyState
                   title="No studies"
-                  description="Upload a DICOM file using the ↑ button above."
+                  description="Upload a DICOM file using the ↑ button above, or run AI screening on a DICOM chest X-ray."
                   icon={<ScanLine className="h-6 w-6" />}
                 />
               </div>
@@ -194,6 +198,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
               studies.map((study) => (
                 <button
                   key={study.id}
+                  data-study-uid={study.id}
                   onClick={() => { onSelectStudy(study.id); setViewerOpen(true); }}
                   className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors ${
                     selectedStudyId === study.id ? 'bg-teal-50 dark:bg-teal-950/30' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'
@@ -201,25 +206,33 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
                 >
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{study.description}</p>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">{study.modality} · {formatDate(study.studyDate)}</p>
-                  <div className="flex items-center gap-2">
+                  <p className="text-[11px] text-neutral-400">
+                    {study.seriesCount} series · {study.instanceCount ?? 0} image{study.instanceCount === 1 ? '' : 's'}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {hasViewableImages(study.modality) ? (
                       <StatusBadge variant="success">Available</StatusBadge>
                     ) : (
                       <StatusBadge variant="warning">No images</StatusBadge>
                     )}
+                    {study.latestAnalysis && <StatusBadge variant="neutral">AI screened</StatusBadge>}
                   </div>
                 </button>
               ))
             )}
           </div>
           <div className="border-t border-neutral-200 p-3 dark:border-neutral-800">
-            <div className="space-y-1.5 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/50">
+            <div className="space-y-1.5 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/50" data-testid="study-metadata">
               <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Study Metadata</p>
               {selectedStudy ? (
                 <div className="space-y-1 text-xs text-neutral-600 dark:text-neutral-400">
-                  <p className="break-all font-mono text-[10px]">UID: {selectedStudy.id}</p>
+                  <p className="break-all font-mono text-[10px]">Study UID: {selectedStudy.id}</p>
+                  {selectedStudy.seriesInstanceUid && <p className="break-all font-mono text-[10px]">Series UID: {selectedStudy.seriesInstanceUid}</p>}
+                  {selectedStudy.sopInstanceUid && <p className="break-all font-mono text-[10px]">SOP UID: {selectedStudy.sopInstanceUid}</p>}
                   <p>Modality: {selectedStudy.modality}</p>
                   <p>Date: {formatDate(selectedStudy.studyDate)}</p>
+                  <p>Series: {selectedStudy.seriesCount} · Images: {selectedStudy.instanceCount ?? 0}</p>
+                  {selectedStudy.rows && selectedStudy.columns && <p>Dimensions: {selectedStudy.columns}×{selectedStudy.rows}</p>}
                 </div>
               ) : (
                 <p className="text-xs text-neutral-400">Select a study to view metadata</p>
@@ -229,16 +242,16 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
         </Card>
       </div>
 
-      {/* Center: Imaging Viewport */}
-      <div className="h-full min-h-[560px]">
-        <Card className="lg:h-full flex flex-col">
+      {/* Center: the real OHIF viewer (its own toolbar provides zoom, pan, W/L, measurements, MPR/3D) */}
+      <div className="h-full min-h-[640px]">
+        <Card className="lg:h-full flex flex-col overflow-hidden">
           {!selectedStudy ? (
             <div className="flex flex-1 items-center justify-center p-8">
               <EmptyState title="Select a study" description="Choose an imaging study from the list to open the viewer." icon={<ScanLine className="h-6 w-6" />} />
             </div>
           ) : (
             <>
-              <div className="relative flex flex-1 bg-neutral-950" style={{ minHeight: 400 }}>
+              <div className="relative flex flex-1 bg-neutral-950" style={{ minHeight: 600 }}>
                 {!hasViewableImages(selectedStudy.modality) ? (
                   <div className="flex flex-1 flex-col items-center justify-center p-8 text-center" role="status">
                     <ScanLine className="h-10 w-10 text-neutral-600" />
@@ -248,11 +261,12 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
                       Select an imaging study such as a chest X-ray.
                     </p>
                   </div>
-                ) : viewerOpen ? (
+                ) : viewerOpen && ohifStudyUrl ? (
                   <iframe
+                    key={ohifStudyUrl}
                     title="OHIF DICOM Viewer"
                     src={ohifStudyUrl}
-                    className="h-full min-h-[440px] w-full border-0"
+                    className="h-full min-h-[600px] w-full border-0"
                     allow="fullscreen"
                   />
                 ) : (
@@ -263,62 +277,62 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
                   </div>
                 )}
               </div>
-
-              {/* Study info bar */}
               <div className="flex items-center justify-between gap-2 border-t border-neutral-200 p-3 dark:border-neutral-800">
-                <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+                <div className="flex min-w-0 items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
                   <span>{selectedStudy.modality}</span>
                   <span>·</span>
-                  <span className="max-w-[200px] truncate font-mono text-[10px]">{selectedStudy.id}</span>
+                  <span className="truncate font-mono text-[10px]" data-testid="viewer-study-uid">{selectedStudy.id}</span>
                 </div>
-                <StatusBadge variant="success">Live</StatusBadge>
+                <StatusBadge variant="success">OHIF · DICOMweb</StatusBadge>
               </div>
             </>
           )}
         </Card>
       </div>
 
-      {/* Right: Radiology Report / AI */}
+      {/* Right: AI result and report for the selected study */}
       <div className="h-full lg:overflow-y-auto">
         <Card className="lg:h-full flex flex-col">
-          <CardHeader title="Radiology Report" icon={<FileText className="h-4.5 w-4.5" />} />
-          <div className="flex-1 overflow-y-auto p-4">
+          <CardHeader title="Clinical Panel" icon={<FileText className="h-4.5 w-4.5" />} />
+          <div className="flex-1 space-y-3 overflow-y-auto p-4">
             {!selectedStudy ? (
-              <EmptyState title="No study selected" description="Select a study to view its radiology report." icon={<FileText className="h-6 w-6" />} />
-            ) : !selectedStudy.reportText ? (
-              <div className="space-y-3">
-                <EmptyState title="No report available" description="This DICOM study has no associated radiology report text." icon={<FileText className="h-6 w-6" />} />
-                <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-700/30 dark:bg-teal-950/10">
-                  <div className="mb-1.5 flex items-center gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
-                    <p className="text-xs font-semibold text-teal-600 dark:text-teal-400">AI Analysis</p>
-                  </div>
-                  <p className="text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">
-                    AI report analysis will be available once an Ollama model is configured on the backend.
-                  </p>
-                </div>
-              </div>
+              <EmptyState title="No study selected" description="Select a study to see its AI screening result." icon={<FileText className="h-6 w-6" />} />
             ) : (
-              <div className="space-y-4">
-                <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-                  <p className="mb-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Report Text</p>
-                  <p className="whitespace-pre-wrap text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">{selectedStudy.reportText}</p>
-                </div>
-                <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-700/30 dark:bg-teal-950/10">
+              <>
+                <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-700/30 dark:bg-teal-950/10" data-testid="study-ai-panel">
                   <div className="mb-1.5 flex items-center gap-1.5">
                     <Sparkles className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
-                    <p className="text-xs font-semibold text-teal-600 dark:text-teal-400">AI Analysis (not yet connected)</p>
+                    <p className="text-xs font-semibold text-teal-600 dark:text-teal-400">AI Screening</p>
                   </div>
-                  <p className="text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">
-                    Connect the Ollama backend to enable AI-powered report explanations.
-                  </p>
+                  {selectedStudy.latestAnalysis ? (
+                    <>
+                      <p className="text-xs text-neutral-600 dark:text-neutral-400">
+                        Primary model finding <span className="font-semibold text-neutral-900 dark:text-neutral-100">{selectedStudy.latestAnalysis.primaryPathology}</span>
+                        {' '}· model score <span className="font-mono">{selectedStudy.latestAnalysis.primaryScore.toFixed(4)}</span>
+                      </p>
+                      <p className="mt-1 text-[11px] text-neutral-500">
+                        Saved {new Date(selectedStudy.latestAnalysis.createdAt).toLocaleString()} · non-diagnostic model output, requires clinical review.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">This study has not been screened yet.</p>
+                  )}
+                  {hasViewableImages(selectedStudy.modality) && (
+                    <Button size="sm" variant="outline" className="mt-2" onClick={() => switchMode('screening')}>
+                      <Sparkles className="h-3.5 w-3.5" /> {selectedStudy.latestAnalysis ? 'Open in AI Screening' : 'Screen in AI Screening'}
+                    </Button>
+                  )}
                 </div>
-                <SafetyNotice variant="compact" />
-                <div className="flex items-center gap-2 text-xs text-neutral-400">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  <span>Report text is from the stored DICOM metadata only.</span>
-                </div>
-              </div>
+                {selectedStudy.reportText ? (
+                  <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+                    <p className="mb-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Report Text</p>
+                    <p className="whitespace-pre-wrap text-xs leading-relaxed text-neutral-700 dark:text-neutral-300">{selectedStudy.reportText}</p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-neutral-400">No radiology report text is stored with this DICOM study.</p>
+                )}
+                {patient && <p className="text-[11px] text-neutral-400">{patientLabel(patient)}</p>}
+              </>
             )}
           </div>
         </Card>

@@ -5,13 +5,16 @@
  * Selecting a finding re-requests the same endpoint with `target` so the
  * explanation always comes from the backend for that model output.
  *
+ * Results are saved to the active patient (a DICOM input also becomes the patient's imaging
+ * study, the same one OHIF opens) and restored from the backend when the page is reopened.
+ *
  * Wording rule: scores are "model scores" (non-diagnostic model outputs), never
  * probabilities or diagnoses. Grad-CAM is a visual explanation, not evidence.
  */
 
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import {
-  AlertTriangle, Cpu, FileImage, Layers, Loader2, RefreshCw, ScanLine, ShieldCheck,
+  AlertTriangle, Cpu, ExternalLink, FileImage, History, Layers, Loader2, RefreshCw, ScanLine, ShieldCheck,
   Sparkles, Stethoscope, Timer, Upload, X,
 } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
@@ -23,9 +26,13 @@ import { useAuth } from '@/context/AuthContext';
 import { AiExplanationPanel, type ExplanationState } from '@/components/vision/AiExplanationPanel';
 import {
   ACCEPT_ATTR, describeExplanationError, describeScreeningError, deviceLabel, explainFinding,
-  getVisionStatus, imageDataUrl, providerLabel, screenChestXray, validateUpload,
+  getSavedAnalysis, getVisionStatus, imageDataUrl, listSavedAnalyses, providerLabel, screenChestXray,
+  screenStoredStudy, validateUpload,
   type DetectedFormat, type ScreeningError, type ScreeningRun, type VisionExplanation, type VisionStatus,
 } from '@/lib/vision';
+import { hasViewableImages } from '@/lib/imagingStudies';
+import type { PatientSummary } from '@/lib/patients';
+import type { ImagingStudy } from '@/lib/types';
 
 const SCREENING_SAFETY_TEXT =
   'AI-generated information — not a diagnosis. Consult a qualified healthcare professional.';
@@ -61,7 +68,16 @@ function displayName(pathology: string): string {
   return pathology.replace(/_/g, ' ');
 }
 
-export function ChestXrayScreening() {
+interface ChestXrayScreeningProps {
+  patient: PatientSummary;
+  /** Study selected in the Imaging workspace (its saved result is shown; it can be screened without re-upload). */
+  study: ImagingStudy | null;
+  /** A result was saved; the DICOM study it belongs to (null for PNG/JPEG). */
+  onSaved: (studyInstanceUid: string | null) => void;
+  onOpenInOhif: (studyInstanceUid: string) => void;
+}
+
+export function ChestXrayScreening({ patient, study, onSaved, onOpenInOhif }: ChestXrayScreeningProps) {
   const { signOut } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<SelectedFile | null>(null);
@@ -82,6 +98,9 @@ export function ChestXrayScreening() {
 
   const [view, setView] = useState<ViewMode>('overlay');
   const [opacity, setOpacity] = useState(0.45);
+  // Saved analysis the current result belongs to, and when it was restored from the backend.
+  const [analysisId, setAnalysisId] = useState<string | null>(null);
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
 
   // Revoke preview URLs when the file changes or the component unmounts.
   useEffect(() => () => {
@@ -100,6 +119,8 @@ export function ChestXrayScreening() {
 
   const resetResults = () => {
     requestSeq.current += 1;
+    setAnalysisId(null);
+    setRestoredAt(null);
     setRun(null);
     setError(null);
     setExplanations({});
@@ -153,24 +174,31 @@ export function ChestXrayScreening() {
     setValidationError(null);
   };
 
-  const runScreening = async () => {
-    if (!selected) return;
+  const showResult = (result: ScreeningRun) => {
+    const target = result.response.explanation.target_pathology;
+    setRun(result);
+    setAnalysisId(result.response.analysis_id ?? null);
+    setExplanations({ [target]: { explanation: result.response.explanation, run: result } });
+    setSelectedTarget(target);
+    setView('overlay');
+    return target;
+  };
+
+  const startRun = async (call: () => Promise<ScreeningRun>) => {
     const seq = ++requestSeq.current;
     setRunning(true);
     setError(null);
     setRun(null);
+    setRestoredAt(null);
     setExplanations({});
     setAiExplanations({});
     try {
-      const result = await screenChestXray(selected.file);
+      const result = await call();
       if (seq !== requestSeq.current) return;
-      const target = result.response.explanation.target_pathology;
-      setRun(result);
-      setExplanations({ [target]: { explanation: result.response.explanation, run: result } });
-      setSelectedTarget(target);
-      setView('overlay');
+      const target = showResult(result);
       refreshStatus();
       void requestAiExplanation(target, result.response.result_id);
+      if (result.response.analysis_id) onSaved(result.response.study_instance_uid ?? null);
     } catch (err) {
       if (seq !== requestSeq.current) return;
       setError(describeScreeningError(err));
@@ -179,15 +207,56 @@ export function ChestXrayScreening() {
     }
   };
 
+  const runScreening = () => {
+    if (!selected) return;
+    void startRun(() => screenChestXray(selected.file, undefined, { save: true }));
+  };
+
+  const screenSelectedStudy = () => {
+    if (!study) return;
+    void startRun(() => screenStoredStudy(patient.id, study.id));
+  };
+
+  // Restore the saved result for the selected study (or the patient's latest) when nothing is loaded.
+  const restoreId = study ? study.latestAnalysis?.id ?? null : undefined;
+  useEffect(() => {
+    if (run || selected || running) return;
+    let cancelled = false;
+    const seq = requestSeq.current;
+    (async () => {
+      const id = restoreId !== undefined ? restoreId : (await listSavedAnalyses(patient.id))[0]?.id ?? null;
+      if (!id || cancelled) return;
+      const saved = await getSavedAnalysis(patient.id, id);
+      if (cancelled || seq !== requestSeq.current) return;
+      const target = showResult({ response: saved.response, roundTripMs: 0 });
+      setRestoredAt(saved.created_at);
+      const stored = saved.text_explanations ?? {};
+      setAiExplanations(Object.fromEntries(Object.entries(stored).map(([k, data]) => [k, { status: 'ready', data }])));
+      if (!stored[target]) void requestAiExplanation(target, saved.response.result_id);
+    })().catch(() => { /* nothing saved yet or not reachable: start empty */ });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patient.id, restoreId]);
+
   const selectFinding = async (pathology: string) => {
-    if (!selected || !run || explaining) return;
+    if (!run || explaining) return;
+    const storedStudy = run.response.study_instance_uid ?? null;
+    if (!selected && !storedStudy) {
+      if (!explanations[pathology]) {
+        setError({ kind: 'input', title: 'Original image not stored',
+          message: 'This saved PNG/JPEG result keeps only its scores and the explanation shown. Select the image again to view another finding.' });
+        return;
+      }
+    }
     setSelectedTarget(pathology);
     if (explanations[pathology]) return;
     const seq = requestSeq.current;
     setExplaining(pathology);
     setError(null);
     try {
-      const result = await screenChestXray(selected.file, pathology);
+      const result = selected
+        ? await screenChestXray(selected.file, pathology, { analysisId })
+        : await screenStoredStudy(patient.id, storedStudy!, pathology, analysisId);
       if (seq !== requestSeq.current) return;
       setExplanations((prev) => ({ ...prev, [pathology]: { explanation: result.response.explanation, run: result } }));
       void requestAiExplanation(pathology, result.response.result_id);
@@ -425,6 +494,17 @@ export function ChestXrayScreening() {
                 </div>
               )}
 
+              {!selected && !run && study && hasViewableImages(study.modality) && (
+                <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-700/30 dark:bg-teal-950/10">
+                  <p className="text-xs text-neutral-700 dark:text-neutral-300">
+                    Selected study: <span className="font-semibold">{study.description}</span> · {study.modality}
+                  </p>
+                  <Button size="sm" className="mt-2" onClick={screenSelectedStudy} disabled={running} data-testid="screen-selected-study">
+                    <Sparkles className="h-3.5 w-3.5" /> Screen selected study
+                  </Button>
+                </div>
+              )}
+
               {validationError && (
                 <div className="flex gap-2 rounded-lg border border-error-100 bg-error-50 p-3 text-xs text-error-700 dark:border-error-700/30 dark:bg-error-700/10 dark:text-error-400" role="alert">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -468,6 +548,19 @@ export function ChestXrayScreening() {
                 action={<StatusBadge variant="warning">Requires Clinical Review</StatusBadge>}
               />
               <div className="space-y-4 px-4 pb-4 sm:px-5 sm:pb-5">
+                {(restoredAt || response.study_instance_uid) && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                    <span className="flex items-center gap-1.5" data-testid="saved-analysis">
+                      <History className="h-3.5 w-3.5" />
+                      {restoredAt ? `Saved analysis · ${new Date(restoredAt).toLocaleString()}` : `Saved to ${patient.patient_code}`}
+                    </span>
+                    {response.study_instance_uid && (
+                      <Button size="sm" variant="outline" onClick={() => onOpenInOhif(response.study_instance_uid!)} data-testid="open-in-ohif">
+                        <ExternalLink className="h-3.5 w-3.5" /> Open in OHIF
+                      </Button>
+                    )}
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3 rounded-lg border border-teal-200 bg-teal-50/60 p-3 dark:border-teal-700/30 dark:bg-teal-950/20">
                   <div>
                     <p className="text-[11px] font-medium uppercase tracking-wide text-teal-700 dark:text-teal-400">Primary Model Finding</p>

@@ -81,6 +81,12 @@ export interface VisionScreenResponse {
   safety: VisionSafety;
   /** Short-lived handle for requesting a text explanation of this result. */
   result_id: string | null;
+  /** Set when the result was saved to a patient (and, for DICOM, the stored study it belongs to). */
+  analysis_id?: string | null;
+  patient_id?: string | null;
+  study_instance_uid?: string | null;
+  series_instance_uid?: string | null;
+  sop_instance_uid?: string | null;
 }
 
 // ─── Text explanation (POST /api/v1/vision/explanations) ──────────────────────
@@ -144,22 +150,62 @@ export async function validateUpload(file: File): Promise<{ format: DetectedForm
 
 // ─── Request ──────────────────────────────────────────────────────────────────
 
-export async function screenChestXray(file: File, target?: string): Promise<ScreeningRun> {
-  const form = new FormData();
-  form.append('file', file);
-  if (target) form.append('target', target);
+export interface SaveOptions {
+  /** Save the result (and a DICOM input) to the active patient. */
+  save?: boolean;
+  /** Re-target an already saved analysis instead of saving a new one. */
+  analysisId?: string | null;
+}
 
+async function timed(call: (signal: AbortSignal) => Promise<VisionScreenResponse>): Promise<ScreeningRun> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const started = performance.now();
   try {
-    const response = await api.postMultipart<VisionScreenResponse>(
-      '/api/v1/vision/screen', form, { signal: controller.signal },
-    );
+    const response = await call(controller.signal);
     return { response, roundTripMs: performance.now() - started };
   } finally {
     window.clearTimeout(timer);
   }
+}
+
+export async function screenChestXray(file: File, target?: string, options: SaveOptions = {}): Promise<ScreeningRun> {
+  const form = new FormData();
+  form.append('file', file);
+  if (target) form.append('target', target);
+  if (options.save) form.append('save', 'true');
+  if (options.analysisId) form.append('analysis_id', options.analysisId);
+  return timed((signal) => api.postMultipart<VisionScreenResponse>('/api/v1/vision/screen', form, { signal }));
+}
+
+/** Screen a study already stored for the patient (no re-upload); saved unless re-targeting `analysisId`. */
+export async function screenStoredStudy(patientId: string, studyUid: string, target?: string,
+  analysisId?: string | null): Promise<ScreeningRun> {
+  const params = new URLSearchParams();
+  if (target) params.set('target', target);
+  if (analysisId) params.set('analysis_id', analysisId);
+  const query = params.toString();
+  const path = `/api/v1/patients/${patientId}/imaging/${encodeURIComponent(studyUid)}/screen${query ? `?${query}` : ''}`;
+  return timed((signal) => api.post<VisionScreenResponse>(path, {}, { signal }));
+}
+
+export interface SavedAnalysis {
+  id: string;
+  study_instance_uid: string | null;
+  primary_pathology: string;
+  primary_score: number;
+  selected_target: string | null;
+  created_at: string;
+  response: VisionScreenResponse;
+  text_explanations: Record<string, TextExplanationResponse>;
+}
+
+export function getSavedAnalysis(patientId: string, analysisId: string): Promise<SavedAnalysis> {
+  return api.get<SavedAnalysis>(`/api/v1/patients/${patientId}/analyses/${analysisId}`);
+}
+
+export function listSavedAnalyses(patientId: string): Promise<Omit<SavedAnalysis, 'response' | 'text_explanations'>[]> {
+  return api.get(`/api/v1/patients/${patientId}/analyses`);
 }
 
 // ─── Error mapping (never surface raw server text) ────────────────────────────
