@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test": "node --test src/lib/processingStages.test.ts src/lib/ranges.test.ts src/lib/reportDates.test.ts src/lib/routing.test.ts src/lib/googleAuth.test.ts src/lib/panelSizes.test.ts src/lib/imagingStudies.test.ts"
+    "test": "node --test src/lib/processingStages.test.ts src/lib/ranges.test.ts src/lib/reportDates.test.ts src/lib/routing.test.ts src/lib/googleAuth.test.ts src/lib/panelSizes.test.ts src/lib/imagingStudies.test.ts",
+    "test:e2e:ohif": "node e2e/ohif-cr-render.e2e.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
@@ -28,6 +29,7 @@
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",
     "globals": "^15.9.0",
+    "playwright-core": "^1.63.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.5.3",

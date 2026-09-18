@@ -1,7 +1,6 @@
 import { useState, useRef } from 'react';
 import {
-  ScanLine, Layers, ZoomIn, Hand, Sliders, Ruler, PenTool, Box, FileText,
-  Sparkles, ShieldCheck, ExternalLink, Upload, Loader2,
+  ScanLine, FileText, Sparkles, ShieldCheck, ExternalLink, Upload, Loader2,
 } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
 import { ResizablePanels } from '@/components/ResizablePanels';
@@ -31,23 +30,11 @@ interface ImagingProps {
   onStudyUploaded: (studyInstanceUid: string) => void;
 }
 
-const toolbarTools = [
-  { key: '2d', label: '2D', icon: Layers },
-  { key: 'mpr', label: 'MPR', icon: Box },
-  { key: '3d', label: '3D', icon: Box },
-  { key: 'zoom', label: 'Zoom', icon: ZoomIn },
-  { key: 'pan', label: 'Pan', icon: Hand },
-  { key: 'window', label: 'Window/Level', icon: Sliders },
-  { key: 'measure', label: 'Measure', icon: Ruler },
-  { key: 'annotate', label: 'Annotation', icon: PenTool },
-];
-
 type ImagingMode = 'screening' | 'viewer';
 
 export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStudy, onStudyUploaded }: ImagingProps) {
   const { addToast } = useToast();
   const [mode, setMode] = useState<ImagingMode>('screening');
-  const [activeTool, setActiveTool] = useState('2d');
   const [viewerOpen, setViewerOpen] = useState(true);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,6 +70,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
         variant: 'success',
       });
       onStudyUploaded(res.study_instance_uid);
+      setViewerOpen(true);
     } catch (err) {
       if (err instanceof ApiError) {
         addToast({
@@ -121,7 +109,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
                 key={key}
                 role="tab"
                 aria-selected={mode === key}
-                onClick={() => setMode(key)}
+                onClick={() => { setMode(key); setViewerOpen(true); }}
                 className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   mode === key
                     ? 'bg-white text-teal-700 shadow-sm dark:bg-neutral-950 dark:text-teal-300'
@@ -206,7 +194,7 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
               studies.map((study) => (
                 <button
                   key={study.id}
-                  onClick={() => onSelectStudy(study.id)}
+                  onClick={() => { onSelectStudy(study.id); setViewerOpen(true); }}
                   className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors ${
                     selectedStudyId === study.id ? 'bg-teal-50 dark:bg-teal-950/30' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'
                   }`}
@@ -250,28 +238,6 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
             </div>
           ) : (
             <>
-              {/* Toolbar */}
-              <div className="flex items-center gap-1 border-b border-neutral-200 p-2 dark:border-neutral-800">
-                {toolbarTools.map((tool) => {
-                  const Icon = tool.icon;
-                  return (
-                    <button
-                      key={tool.key}
-                      onClick={() => setActiveTool(tool.key)}
-                      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                        activeTool === tool.key
-                          ? 'bg-teal-600 text-white'
-                          : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800'
-                      }`}
-                      title={tool.label}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">{tool.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
               <div className="relative flex flex-1 bg-neutral-950" style={{ minHeight: 400 }}>
                 {!hasViewableImages(selectedStudy.modality) ? (
                   <div className="flex flex-1 flex-col items-center justify-center p-8 text-center" role="status">
@@ -296,9 +262,6 @@ export function Imaging({ studies, studiesLoading, selectedStudyId, onSelectStud
                     <p className="mt-1 text-xs text-neutral-500">Use Show viewer to return to OHIF, or open it in a dedicated tab.</p>
                   </div>
                 )}
-                <div className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-black/70 px-2.5 py-1.5 text-[11px] font-medium text-white">
-                  OHIF Viewer · {activeTool.toUpperCase()} mode
-                </div>
               </div>
 
               {/* Study info bar */}
