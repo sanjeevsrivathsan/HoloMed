@@ -147,6 +147,10 @@ function imagingFromBackend(patientId: string, s: PatientImagingStudy, index: nu
     seriesInstanceUid: first?.series_instance_uid ?? null,
     sopInstanceUid: first?.first_sop_instance_uid ?? null,
     instanceCount: s.instance_count,
+    series: s.series.map((se) => ({
+      id: se.series_instance_uid, modality: se.modality, description: se.description,
+      instanceCount: se.instance_count, rows: se.rows, columns: se.columns,
+    })),
     rows: first?.rows ?? null,
     columns: first?.columns ?? null,
     uploadedAt: utc(s.uploaded_at) ?? null,
@@ -562,6 +566,7 @@ function Workspace() {
               selectedStudyId={selectedStudyId}
               onSelectStudy={setSelectedStudyId}
               onStudyUploaded={(uid) => void refreshImaging(uid)}
+              onStudiesImported={(uid) => refreshImaging(uid)}
             />
           )}
           {currentPage === 'templates' && (

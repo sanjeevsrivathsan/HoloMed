@@ -65,3 +65,14 @@ VISION_WEIGHTS_PATH = os.getenv(
 VISION_DEVICE = os.getenv('VISION_DEVICE', 'auto')  # auto | cuda | cpu
 VISION_MAX_UPLOAD_BYTES = int(os.getenv('VISION_MAX_UPLOAD_BYTES', str(50 * 1024 * 1024)))
 VISION_MAX_OVERLAY_SIDE = int(os.getenv('VISION_MAX_OVERLAY_SIDE', '1024'))
+
+# Bulk DICOM import (Patient → Imaging → Import: DICOM files, a folder, or one ZIP archive).
+# Every limit applies per import; each instance is also bound by the 50 MiB single-file limit.
+IMPORT_MAX_ARCHIVE_BYTES = int(os.getenv('HOLOMED_IMPORT_MAX_ARCHIVE_BYTES', str(2 * 1024 ** 3)))    # ZIP as uploaded
+IMPORT_MAX_EXTRACTED_BYTES = int(os.getenv('HOLOMED_IMPORT_MAX_EXTRACTED_BYTES', str(4 * 1024 ** 3)))  # all files, uncompressed
+IMPORT_MAX_FILES = int(os.getenv('HOLOMED_IMPORT_MAX_FILES', '10000'))
+# Largest uncompressed:compressed ratio accepted for a ZIP member (and the whole archive); DICOM
+# rarely exceeds ~10:1, compression bombs reach thousands.
+IMPORT_MAX_COMPRESSION_RATIO = float(os.getenv('HOLOMED_IMPORT_MAX_COMPRESSION_RATIO', '100'))
+IMPORT_MAX_BATCH_FILES = int(os.getenv('HOLOMED_IMPORT_MAX_BATCH_FILES', '100'))  # files per upload request
+IMPORT_JOB_TTL_SECONDS = int(os.getenv('HOLOMED_IMPORT_JOB_TTL_SECONDS', '3600'))  # idle/finished jobs are discarded after this

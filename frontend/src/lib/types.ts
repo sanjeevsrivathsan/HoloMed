@@ -139,6 +139,15 @@ export interface Report {
   ignoredCount?: number;
 }
 
+export interface ImagingSeries {
+  id: string;
+  modality: string | null;
+  description: string | null;
+  instanceCount: number;
+  rows: number | null;
+  columns: number | null;
+}
+
 export interface ImagingStudy {
   id: string;
   patientId: string;
@@ -155,6 +164,8 @@ export interface ImagingStudy {
   seriesInstanceUid?: string | null;
   sopInstanceUid?: string | null;
   instanceCount?: number;
+  /** Every series of the study in storage order; the first is the default one OHIF opens. */
+  series?: ImagingSeries[];
   rows?: number | null;
   columns?: number | null;
   uploadedAt?: string | null;

@@ -72,6 +72,43 @@ async function request<T>(
   return res.json() as Promise<T>;
 }
 
+/**
+ * Upload with progress (XMLHttpRequest: fetch cannot report upload progress). Same credentials,
+ * active-patient header and error handling as request(); aborting `signal` aborts the upload.
+ */
+export function uploadWithProgress<T>(
+  method: 'POST' | 'PUT',
+  path: string,
+  body: FormData | Blob,
+  options: { onProgress?: (loaded: number, total: number) => void; signal?: AbortSignal; contentType?: string } = {},
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(new DOMException('Upload aborted', 'AbortError'));
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, `${API_BASE}${path}`);
+    xhr.withCredentials = true;
+    if (activePatientId) xhr.setRequestHeader(PATIENT_HEADER, activePatientId);
+    if (options.contentType) xhr.setRequestHeader('Content-Type', options.contentType);
+    xhr.upload.onprogress = (e) => options.onProgress?.(e.loaded, e.lengthComputable ? e.total : 0);
+    xhr.onload = () => {
+      let data: unknown = null;
+      try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { /* not JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as T);
+      else {
+        const detail = (data as { detail?: unknown } | null)?.detail;
+        reject(new ApiError(xhr.status, typeof detail === 'string' ? detail : xhr.statusText || 'Upload failed'));
+      }
+    };
+    xhr.onerror = () => reject(new TypeError('Network error'));
+    xhr.onabort = () => reject(new DOMException('Upload aborted', 'AbortError'));
+    options.signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send(body);
+  });
+}
+
 // ─── Public helpers ───────────────────────────────────────────────────────────
 
 export const api = {

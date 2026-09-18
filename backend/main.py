@@ -82,8 +82,9 @@ app.include_router(medical_data.router)
 app.include_router(auth.router)
 app.include_router(dicomweb.router)
 app.include_router(dicomweb.patient_router)
-from .routers import patients
+from .routers import patients, imaging_import
 app.include_router(patients.router)
+app.include_router(imaging_import.router)
 from .routers import report, audit, measurement, template, consent, storage_connection, search, ai
 app.include_router(report.router)
 app.include_router(ai.router)

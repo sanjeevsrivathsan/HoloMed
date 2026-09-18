@@ -62,3 +62,9 @@ backend/tests/artifacts/public_cxr_sample.png
 
 # Local database backups (made before migrations); never commit patient data
 data/*.db.bak-*
+*.bak
+# Local runtime data (database, uploads); never commit patient data
+data/
+
+# Claude Code worktrees and local state
+.claude/worktrees/

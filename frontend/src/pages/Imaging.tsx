@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import {
-  ScanLine, FileText, Sparkles, ExternalLink, Upload, Loader2, User,
+  ScanLine, FileText, Sparkles, ExternalLink, Upload, Loader2, User, FolderInput,
 } from 'lucide-react';
 import { Card, CardHeader } from '@/components/Card';
+import { DicomImportDialog } from '@/components/imaging/DicomImportDialog';
 import { ResizablePanels } from '@/components/ResizablePanels';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -38,10 +39,13 @@ interface ImagingProps {
   onSelectStudy: (id: string) => void;
   /** Called after a DICOM is stored for the patient so the study list refreshes and opens it */
   onStudyUploaded: (studyInstanceUid: string) => void;
+  /** Called after a bulk import (files, folder or ZIP); resolves once the study list is refreshed */
+  onStudiesImported: (studyInstanceUid: string | null) => Promise<void>;
 }
 
 export function Imaging({
   patient, mode, onModeChange, studies, studiesLoading, selectedStudyId, onSelectStudy, onStudyUploaded,
+  onStudiesImported,
 }: ImagingProps) {
   const { addToast } = useToast();
   const [viewerOpen, setViewerOpen] = useState(true);
@@ -60,14 +64,20 @@ export function Imaging({
     return () => observer.disconnect();
   }, [mode]);
   const [uploading, setUploading] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Series chosen per study; a study opens its first series until another is chosen.
+  const [seriesChoice, setSeriesChoice] = useState<Record<string, string>>({});
 
   const selectedStudy = studies.find((s) => s.id === selectedStudyId) || null;
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const studySeries = selectedStudy?.series ?? [];
+  const selectedSeries = (selectedStudy && studySeries.find((s) => s.id === seriesChoice[selectedStudy.id])) || studySeries[0] || null;
+  const selectedSeriesUid = selectedSeries?.id ?? selectedStudy?.seriesInstanceUid ?? null;
 
   // The selected study of the active patient — never a default or previous study.
   const ohifStudyUrl = patient && selectedStudy
-    ? ohifViewerUrl(OHIF_BASE, patient.id, { studyInstanceUid: selectedStudy.id, seriesInstanceUid: selectedStudy.seriesInstanceUid })
+    ? ohifViewerUrl(OHIF_BASE, patient.id, { studyInstanceUid: selectedStudy.id, seriesInstanceUid: selectedSeriesUid })
     : null;
 
   const switchMode = (next: ImagingMode) => {
@@ -204,6 +214,16 @@ export function Imaging({
                 >
                   {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setImportOpen(true)}
+                  disabled={!patient}
+                  title="Import a study: DICOM files, a folder or a ZIP archive"
+                  data-testid="open-dicom-import"
+                >
+                  <FolderInput className="h-4 w-4" /> Import
+                </Button>
               </div>
             }
           />
@@ -216,7 +236,7 @@ export function Imaging({
               <div className="p-4">
                 <EmptyState
                   title="No studies"
-                  description="Upload a DICOM file using the ↑ button above, or run AI screening on a DICOM chest X-ray."
+                  description="Upload a DICOM file using the ↑ button, import a study (files, folder or ZIP) with Import, or run AI screening on a DICOM chest X-ray."
                   icon={<ScanLine className="h-6 w-6" />}
                 />
               </div>
@@ -253,12 +273,38 @@ export function Imaging({
               {selectedStudy ? (
                 <div className="space-y-1 text-xs text-neutral-600 dark:text-neutral-400">
                   <p className="break-all font-mono text-[10px]">Study UID: {selectedStudy.id}</p>
-                  {selectedStudy.seriesInstanceUid && <p className="break-all font-mono text-[10px]">Series UID: {selectedStudy.seriesInstanceUid}</p>}
-                  {selectedStudy.sopInstanceUid && <p className="break-all font-mono text-[10px]">SOP UID: {selectedStudy.sopInstanceUid}</p>}
+                  {selectedSeriesUid && <p className="break-all font-mono text-[10px]">Series UID: {selectedSeriesUid}</p>}
+                  {selectedStudy.sopInstanceUid && selectedSeriesUid === selectedStudy.seriesInstanceUid && <p className="break-all font-mono text-[10px]">SOP UID: {selectedStudy.sopInstanceUid}</p>}
                   <p>Modality: {selectedStudy.modality}</p>
                   <p>Date: {formatDate(selectedStudy.studyDate)}</p>
                   <p>Series: {selectedStudy.seriesCount} · Images: {selectedStudy.instanceCount ?? 0}</p>
-                  {selectedStudy.rows && selectedStudy.columns && <p>Dimensions: {selectedStudy.columns}×{selectedStudy.rows}</p>}
+                  {(selectedSeries?.rows ?? selectedStudy.rows) && (selectedSeries?.columns ?? selectedStudy.columns) && (
+                    <p>Dimensions: {selectedSeries?.columns ?? selectedStudy.columns}×{selectedSeries?.rows ?? selectedStudy.rows}</p>
+                  )}
+                  {studySeries.length > 1 && (
+                    <div className="pt-1" data-testid="series-list">
+                      <p className="mb-1 font-medium text-neutral-500 dark:text-neutral-400">Series in viewer</p>
+                      <div className="space-y-1">
+                        {studySeries.map((se, i) => (
+                          <button
+                            key={se.id}
+                            type="button"
+                            data-series-uid={se.id}
+                            aria-pressed={se.id === selectedSeriesUid}
+                            onClick={() => { setSeriesChoice((c) => ({ ...c, [selectedStudy.id]: se.id })); setViewerOpen(true); }}
+                            className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left ${
+                              se.id === selectedSeriesUid
+                                ? 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-200'
+                                : 'hover:bg-neutral-100 dark:hover:bg-neutral-700/50'
+                            }`}
+                          >
+                            <span className="truncate">{se.modality ?? '—'} · {se.description || `Series ${i + 1}`}</span>
+                            <span className="shrink-0 tabular-nums">{se.instanceCount}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-xs text-neutral-400">Select a study to view metadata</p>
@@ -367,6 +413,16 @@ export function Imaging({
       )}
     </ResizablePanels>
     </div>
+    )}
+    {patient && (
+      <DicomImportDialog
+        key={`import-${patient.id}`}
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        patient={patient}
+        onImported={onStudiesImported}
+        onOpenInOhif={openInOhif}
+      />
     )}
     </div>
   );
