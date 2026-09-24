@@ -21,8 +21,16 @@ app = FastAPI(
     # No lifespan needed for simple init
 )
 
-# CORS configuration – allow origins from env or default to localhost dev front‑end
-origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+# CORS configuration – exact origins from CORS_ORIGINS (default: localhost dev front-end).
+# Parsed in backend/config.py: whitespace/trailing slashes stripped, "*" never allowed with credentials.
+from . import config
+from .services import auth_cookies
+origins = config.CORS_ORIGINS
+if "*" in os.getenv("CORS_ORIGINS", ""):
+    logger.warning("CORS_ORIGINS contains '*', which is ignored (credentialed requests need exact origins)")
+logger.info("CORS origins: %s", ", ".join(origins) or "(none)")
+logger.info("Session cookie: SameSite=%s, Secure=%s (HOLOMED_ENV=%s)",
+            auth_cookies.samesite(), auth_cookies.secure(), config.HOLOMED_ENV)
 
 app.add_middleware(
     CORSMiddleware,

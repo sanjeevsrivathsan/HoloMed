@@ -2,13 +2,31 @@ import os
 from dotenv import load_dotenv
 
 # Load .env if present
+# Explicit paths: a bare load_dotenv() searches from this file's directory and would pick
+# backend/.env instead of the .env in the repository root. The working-directory .env wins; when
+# the server is started from another directory, the repository-root .env is used instead.
+# Real environment variables always take precedence over .env values.
+_REPO_ROOT_ENV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
 if os.path.exists('.env'):
-    # Explicit path: a bare load_dotenv() searches from this file's directory and would pick
-    # backend/.env instead of the .env in the working directory (repository root).
     load_dotenv('.env')
+elif os.path.exists(_REPO_ROOT_ENV):
+    load_dotenv(_REPO_ROOT_ENV)
+
+
+def parse_cors_origins(value: str) -> list:
+    """Comma-separated origins → exact-match list. Whitespace and trailing slashes are removed
+    (browsers send Origin without them). "*" is dropped: with credentials it would let any site
+    read authenticated responses."""
+    origins = []
+    for item in value.split(','):
+        origin = item.strip().rstrip('/')
+        if origin and origin != '*' and origin not in origins:
+            origins.append(origin)
+    return origins
+
 
 # Environment variables with defaults
-CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(',')
+CORS_ORIGINS = parse_cors_origins(os.getenv('CORS_ORIGINS', 'http://localhost:5173'))
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', '')
 DATABASE_URL = os.getenv('DATABASE_URL', f"sqlite:///./data/holomed.db")
@@ -35,7 +53,9 @@ GOOGLE_POST_LOGIN_URL = os.getenv('GOOGLE_POST_LOGIN_URL', 'http://localhost:517
 
 # Session cookie. Secure defaults to true in production; local HTTP development needs false.
 SESSION_COOKIE_SECURE = _env_bool('SESSION_COOKIE_SECURE', HOLOMED_ENV == 'production')
-# lax (default; frontend and API on the same site) | strict | none (cross-site; requires Secure)
+# lax (default; frontend and API on the same site) | strict | none (cross-site; requires Secure).
+# A frontend on another site (e.g. GitHub Pages calling api.<domain>) needs none: with lax the
+# browser never sends the cookie on its fetch() calls and /auth/me returns 401.
 SESSION_COOKIE_SAMESITE = os.getenv('SESSION_COOKIE_SAMESITE', 'lax').strip().lower()
 
 # Vision AI service (chest radiograph screening model, local checkpoint only)

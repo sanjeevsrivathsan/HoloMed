@@ -26,6 +26,7 @@ import type { UserProfile, Role } from '@/lib/types';
 import { api, ApiError, type MeResponse } from '@/lib/api';
 import { consumeAuthRedirectMessage, type AuthRedirectMessage } from '@/lib/authMessages';
 import { startGoogleAuth } from '@/lib/googleAuth';
+import { appPathname, rememberPostLoginPath } from '@/lib/routing';
 import { useToast } from '@/context/ToastContext';
 
 interface AuthContextValue {
@@ -120,6 +121,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Google sign-in (same tab: HoloMed → Google → callback → HoloMed) ──────
   const signInWithGoogle = useCallback(() => {
+    // Google returns to the app root; remember the workspace the user asked for (e.g. /imaging).
+    try {
+      rememberPostLoginPath(appPathname(window.location.pathname, import.meta.env.BASE_URL), window.sessionStorage);
+    } catch {
+      // sessionStorage blocked — sign-in still works and opens the default workspace
+    }
     startGoogleAuth('/api/v1/auth/google');
   }, []);
 

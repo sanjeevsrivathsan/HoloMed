@@ -291,6 +291,18 @@ The prebuilt viewer in `frontend/ohif` is served by FastAPI at `/ohif` and proxi
   - `SESSION_COOKIE_SAMESITE=lax` if the frontend and API share a site, or `none` for a
     cross-site frontend (this forces Secure)
   - `CORS_ORIGINS=https://<your-frontend>`
+- **Current deployment** (GitHub Pages frontend + `api.shadowless.app` via Cloudflare Tunnel →
+  `http://127.0.0.1:8001`). `github.io` and `shadowless.app` are different sites, so:
+  - `HOLOMED_ENV=production`, `SESSION_COOKIE_SAMESITE=none`, `SESSION_COOKIE_SECURE=true`
+  - `CORS_ORIGINS=https://sanjeevsrivathsan.github.io,http://localhost:5173,http://127.0.0.1:5173`
+  - `GOOGLE_REDIRECT_URI=https://api.shadowless.app/api/v1/auth/google/callback`
+  - `GOOGLE_POST_LOGIN_URL=https://sanjeevsrivathsan.github.io/HoloMed/`
+  - The frontend is built with `VITE_API_BASE_URL=https://api.shadowless.app` and Vite base
+    `/HoloMed/` (`.github/workflows/deploy-pages.yml`); `404.html` is a copy of `index.html` so deep
+    links such as `/HoloMed/imaging` load the app. OHIF is loaded from `<VITE_API_BASE_URL>/ohif/`.
+  - The backend reads `.env` from the working directory, else from the repository root; real
+    environment variables take precedence. On startup it logs the effective CORS origins and
+    session-cookie SameSite/Secure values (no secrets).
 - **Without Google configured:** the Google button returns the user to the sign-in screen with
   "Google sign-in is not configured".
 
