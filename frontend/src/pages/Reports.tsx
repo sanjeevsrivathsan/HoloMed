@@ -20,6 +20,7 @@ import {
   type ReportCapabilities, type ReportExtraction,
 } from '@/lib/reports';
 import type { MedicalMeasurement, Report } from '@/lib/types';
+import { apiUrl } from '@/lib/api';
 
 interface ReportsProps {
   reports: Report[];
@@ -299,16 +300,16 @@ export function Reports({
                 {activeTab === 'original' && (
                   <div className="flex h-full min-h-[500px] flex-col gap-2">
                     <div className="flex justify-end">
-                      <a href={`/api/v1/reports/${report.id}/download`} target="_blank" rel="noopener noreferrer"
+                      <a href={apiUrl(`/api/v1/reports/${report.id}/download`)} target="_blank" rel="noopener noreferrer"
                         className="btn btn-secondary px-3 py-1.5 text-xs">
                         <Download className="h-3.5 w-3.5" /> Open original
                       </a>
                     </div>
                     {isImage ? (
-                      <img src={`/api/v1/reports/${report.id}/download`} alt={`Original document: ${report.title}`}
+                      <img src={apiUrl(`/api/v1/reports/${report.id}/download`)} alt={`Original document: ${report.title}`}
                         className="max-h-[70vh] w-full rounded-lg border border-neutral-200 object-contain dark:border-neutral-700" />
                     ) : (
-                      <iframe src={`/api/v1/reports/${report.id}/download`} title={report.title}
+                      <iframe src={apiUrl(`/api/v1/reports/${report.id}/download`)} title={report.title}
                         className="h-full min-h-[480px] w-full flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700" />
                     )}
                   </div>
