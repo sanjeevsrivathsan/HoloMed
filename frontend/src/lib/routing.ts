@@ -7,6 +7,10 @@
  *   /clinical/:id       Clinical View for a report
  *   /overview /search /timeline /templates /privacy /storage /settings
  *
+ * Paths above are relative to the app's base path (Vite `base`, e.g. "/HoloMed/" on the GitHub
+ * Pages project site). `appPathname` / `appUrl` convert between browser pathnames and app paths so
+ * the app never navigates outside its base path.
+ *
  * Kept free of path aliases so it runs under `node --test`.
  */
 
@@ -60,3 +64,70 @@ export function sameRoute(a: AppRoute, b: AppRoute): boolean {
   return formatRoute(a) === formatRoute(b);
 }
 
+
+/** Normalise a base path to "/" or "/segment/…/" (leading and trailing slash). */
+function normaliseBase(base: string): string {
+  const trimmed = base.replace(/^\/+|\/+$/g, '');
+  return trimmed ? `/${trimmed}/` : '/';
+}
+
+/** Browser pathname → app path ("/HoloMed/imaging" → "/imaging" for base "/HoloMed/"). */
+export function appPathname(pathname: string, base = '/'): string {
+  const prefix = normaliseBase(base);
+  if (prefix === '/') return pathname || '/';
+  const bare = prefix.slice(0, -1);                        // "/HoloMed"
+  if (pathname === bare || pathname === prefix) return '/';
+  if (pathname.startsWith(prefix)) return pathname.slice(bare.length);
+  return pathname;
+}
+
+/** App path → browser URL under the base path ("/imaging" → "/HoloMed/imaging"). */
+export function appUrl(path: string, base = '/'): string {
+  const prefix = normaliseBase(base);
+  return prefix === '/' ? path : prefix.slice(0, -1) + path;
+}
+
+/** Route of a browser pathname under the base path. */
+export function routeFromLocation(pathname: string, base = '/'): AppRoute {
+  return parseRoute(appPathname(pathname, base));
+}
+
+/** Browser URL of a route under the base path. */
+export function urlForRoute(route: AppRoute, base = '/'): string {
+  return appUrl(formatRoute(route), base);
+}
+
+// ── Route restoration across the Google sign-in redirect ─────────────────────
+// Google sign-in leaves the app (backend → Google → backend callback) and the backend always
+// returns to GOOGLE_POST_LOGIN_URL (the app root). The requested workspace path is remembered in
+// sessionStorage (this tab only; an app path, never a token) and restored on return.
+
+export const POST_LOGIN_PATH_KEY = 'holomed.postLoginPath';
+
+type PathStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+/** Remember the app path to return to after an off-site sign-in. */
+export function rememberPostLoginPath(appPath: string, store: PathStore): void {
+  try {
+    store.setItem(POST_LOGIN_PATH_KEY, formatRoute(parseRoute(appPath)));
+  } catch {
+    // storage unavailable (private mode, blocked) — the default route is used instead
+  }
+}
+
+/**
+ * The app path to open on this page load: a remembered post-login path (read once, then removed)
+ * when the browser landed on the app root, otherwise the current path. Deep links always win.
+ * Only known workspace paths are returned (parseRoute/formatRoute), never arbitrary URLs.
+ */
+export function takeEntryPath(currentAppPath: string, store: PathStore | null): string {
+  let remembered: string | null = null;
+  try {
+    remembered = store?.getItem(POST_LOGIN_PATH_KEY) ?? null;
+    store?.removeItem(POST_LOGIN_PATH_KEY);
+  } catch {
+    remembered = null;
+  }
+  const atRoot = currentAppPath === '/' || currentAppPath === '';
+  return atRoot && remembered ? formatRoute(parseRoute(remembered)) : currentAppPath;
+}

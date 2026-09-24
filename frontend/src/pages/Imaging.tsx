@@ -16,10 +16,13 @@ import { hasViewableImages } from '@/lib/imagingStudies';
 import { ohifViewerUrl, patientLabel, type PatientSummary } from '@/lib/patients';
 
 /**
- * OHIF is served by the FastAPI backend at /ohif/ (Vite proxies it in development).
+ * OHIF is served by the FastAPI backend at /ohif/ (Vite proxies it in development). Without
+ * VITE_OHIF_URL it is loaded from the API origin (VITE_API_BASE_URL), since a separately hosted
+ * frontend (GitHub Pages) does not serve /ohif/ itself.
  * The viewer is launched per patient and study: see ohifViewerUrl.
  */
-const OHIF_BASE = ((import.meta.env.VITE_OHIF_URL as string | undefined) ?? '/ohif/').replace(/\/?$/, '/');
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+const OHIF_BASE = ((import.meta.env.VITE_OHIF_URL as string | undefined) || `${API_BASE}/ohif/`).replace(/\/?$/, '/');
 
 // Width the OHIF viewer keeps when all three columns are shown; below that the clinical panel
 // starts collapsed (it can still be opened) so the viewer never shrinks to an unusable strip.

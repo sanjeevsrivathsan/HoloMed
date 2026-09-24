@@ -21,8 +21,9 @@ export type GoogleAuthPath =
   | '/api/v1/auth/google'
   | '/api/v1/auth/google/link';
 
+// `import.meta.env` is Vite-only; it is undefined under `node --test`, where the base is ''.
 const API_BASE =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+  (import.meta.env?.VITE_API_BASE_URL as string | undefined) ?? '';
 
 /**
  * Navigate this tab to the backend endpoint that starts the Google flow.

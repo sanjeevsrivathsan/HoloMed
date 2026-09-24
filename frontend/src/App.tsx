@@ -39,7 +39,9 @@ import { api, ApiError, type PatientImagingStudy } from '@/lib/api';
 import { pickViewerStudy } from '@/lib/imagingStudies';
 import type { ImagingStudy, Template, Report, ReportStatus, AuditEvent, MedicalMeasurement, ConsentRecord, StorageConnection, SourceReference } from '@/lib/types';
 import { isProcessing, summaryFromBackend } from '@/lib/reports';
-import { formatRoute, parseRoute, sameRoute, type AppRoute } from '@/lib/routing';
+import {
+  appPathname, routeFromLocation, sameRoute, takeEntryPath, urlForRoute, type AppRoute,
+} from '@/lib/routing';
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -163,6 +165,37 @@ function imagingFromBackend(patientId: string, s: PatientImagingStudy, index: nu
   };
 }
 
+// ── Routing under the deployment base path ────────────────────────────────────
+// Vite's `base` ("/HoloMed/" on GitHub Pages, "/" elsewhere): routes live beneath it.
+const BASE_PATH = import.meta.env.BASE_URL;
+
+function currentRoute(): AppRoute {
+  return routeFromLocation(window.location.pathname, BASE_PATH);
+}
+
+function routeUrl(route: AppRoute): string {
+  return urlForRoute(route, BASE_PATH);
+}
+
+function sessionStore(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+// Entry route, resolved once per page load (StrictMode runs state initializers twice, and the
+// remembered post-login path is consumed on first read).
+let entryRoute: AppRoute | null = null;
+function takeEntryRoute(): AppRoute {
+  if (!entryRoute) {
+    const path = takeEntryPath(appPathname(window.location.pathname, BASE_PATH), sessionStore());
+    entryRoute = routeFromLocation(path);
+  }
+  return entryRoute;
+}
+
 // ── Workspace (rendered after authentication) ─────────────────────────────────
 
 function Workspace() {
@@ -172,7 +205,7 @@ function Workspace() {
 
   // ── Page navigation ──────────────────────────────────────────────────────
   // Workspace route is mirrored in the URL (History API): Back/Forward, refresh and deep links work.
-  const [initialRoute] = useState<AppRoute>(() => parseRoute(window.location.pathname));
+  const [initialRoute] = useState<AppRoute>(takeEntryRoute);
   const [currentPage, setCurrentPage] = useState<PageKey>(initialRoute.page);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -232,8 +265,8 @@ function Workspace() {
       setReports(mappedReports);
       if ((fresh || !selectedReportId) && mappedReports.length > 0) {
         setSelectedReportId(mappedReports[0].id);
-        if (parseRoute(window.location.pathname).page === 'reports') {
-          window.history.replaceState({ holomed: true }, '', formatRoute({ page: 'reports', reportId: mappedReports[0].id }));
+        if (currentRoute().page === 'reports') {
+          window.history.replaceState({ holomed: true }, '', routeUrl({ page: 'reports', reportId: mappedReports[0].id }));
         }
       }
 
@@ -317,9 +350,9 @@ function Workspace() {
       setSourceReferences([]);
       setAuditEvents([]);
       setConsents([]);
-      const page = parseRoute(window.location.pathname).page;
+      const page = currentRoute().page;
       if (page === 'reports' || page === 'clinical') {
-        window.history.replaceState({ holomed: true }, '', formatRoute({ page, reportId: null }));
+        window.history.replaceState({ holomed: true }, '', routeUrl({ page, reportId: null }));
       }
     }
     void fetchBackendData(undefined, switching);
@@ -370,8 +403,8 @@ function Workspace() {
   }, []);
 
   const navigate = useCallback((route: AppRoute, options: { replace?: boolean } = {}) => {
-    const current = parseRoute(window.location.pathname);
-    const url = formatRoute(route);
+    const current = currentRoute();
+    const url = routeUrl(route);
     if (options.replace || sameRoute(current, route)) {
       window.history.replaceState({ holomed: true }, '', url + window.location.hash);
     } else {
@@ -381,16 +414,16 @@ function Workspace() {
     setMobileSidebarOpen(false);
   }, [applyRoute]);
 
-  // Normalise the entry URL once (e.g. "/" → "/imaging") without adding history.
+  // Normalise the entry URL once (e.g. "/HoloMed/" → "/HoloMed/imaging") without adding history.
   useEffect(() => {
-    const url = formatRoute(initialRoute);
+    const url = routeUrl(initialRoute);
     if (window.location.pathname !== url) {
       window.history.replaceState({ holomed: true }, '', url + window.location.search + window.location.hash);
     }
   }, [initialRoute]);
 
   useEffect(() => {
-    const onPopState = () => applyRoute(parseRoute(window.location.pathname));
+    const onPopState = () => applyRoute(currentRoute());
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, [applyRoute]);
