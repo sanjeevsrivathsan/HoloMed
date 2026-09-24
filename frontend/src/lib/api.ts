@@ -14,6 +14,14 @@
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 
+/**
+ * Absolute URL of an API path, for places the browser loads directly (iframe, img, links) rather
+ * than through request(): on GitHub Pages a bare "/api/…" would resolve against github.io.
+ */
+export function apiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 // The active patient (set by PatientContext). Sent on every request; the backend verifies that the
 // signed-in user owns it before using it, and scopes patient-owned data to it.
 export const PATIENT_HEADER = 'X-HoloMed-Patient';
